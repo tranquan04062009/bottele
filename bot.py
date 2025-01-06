@@ -12,6 +12,10 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from collections import deque
 from sklearn.preprocessing import LabelEncoder
+import nest_asyncio  # Thêm vào để sửa lỗi event loop
+
+# Sử dụng nest_asyncio để cho phép chạy lại event loop trong môi trường đã có event loop
+nest_asyncio.apply()
 
 # Lấy token từ biến môi trường
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -27,10 +31,10 @@ label_encoder = LabelEncoder()
 label_encoder.fit(["t", "x"])  # Đảm bảo rằng chúng ta chỉ mã hóa t và x
 
 # Các mô hình học máy
-logistic_model = LogisticRegression()
+logistic_model = LogisticRegression(max_iter=200)
 decision_tree_model = DecisionTreeClassifier()
 random_forest_model = RandomForestClassifier(n_estimators=100)
-svm_model = SVC()
+svm_model = SVC(probability=True)
 ann_model = MLPClassifier(hidden_layer_sizes=(10,))
 
 def update_models():
@@ -50,7 +54,6 @@ def weighted_prediction(history):
     Dự đoán dựa trên trọng số các kết quả gần đây.
     Tăng trọng số cho các kết quả gần nhất trong lịch sử.
     """
-    # Sử dụng các mô hình học máy để dự đoán
     if len(real_data) > 1:
         X = np.array([i for i in range(len(history))]).reshape(-1, 1)
 
