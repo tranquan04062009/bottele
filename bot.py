@@ -39,6 +39,9 @@ def update_models():
         X = np.array([item[0] for item in real_data]).reshape(-1, 1)
         y = np.array([item[1] for item in real_data])
         
+        # Mã hóa nhãn y
+        y = label_encoder.transform(y)  # Đảm bảo tất cả nhãn đã được mã hóa
+
         logistic_model.fit(X, y)
         decision_tree_model.fit(X, y)
         random_forest_model.fit(X, y)
@@ -192,14 +195,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Khởi chạy bot
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
+    application = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("tx", tx))
-    app.add_handler(CommandHandler("add", add))
-    app.add_handler(CommandHandler("history", history))
-    app.add_handler(CommandHandler("txmd", txmd))
-    app.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("tx", tx))
+    application.add_handler(CommandHandler("txmd", txmd))
+    application.add_handler(CommandHandler("add", add))
+    application.add_handler(CommandHandler("history", history))
+    application.add_handler(CommandHandler("help", help_command))
 
-    print("Bot đang chạy...")
-    app.run_polling()
+    application.run_polling()
