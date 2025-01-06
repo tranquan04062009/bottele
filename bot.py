@@ -1,11 +1,9 @@
 import os
 import random
 import numpy as np
-from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from collections import Counter, deque
-import threading
 
 # Lấy token từ biến môi trường
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -142,7 +140,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # Khởi chạy bot
-def run_bot():
+if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -153,18 +151,3 @@ def run_bot():
 
     print("Bot đang chạy...")
     app.run_polling()
-
-# Web Server để duy trì bot hoạt động
-app_flask = Flask("")
-
-@app_flask.route("/")
-def home():
-    return "Bot đang hoạt động!"
-
-def run_server():
-    app_flask.run(host="0.0.0.0", port=8080)
-
-# Chạy cả bot và web server
-if __name__ == "__main__":
-    threading.Thread(target=run_server).start()
-    run_bot()
