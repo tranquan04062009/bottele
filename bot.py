@@ -1,5 +1,4 @@
 import os
-import os
 os.system("pip install scipy scikit-learn pandas")
 import random
 import numpy as np
@@ -130,12 +129,10 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
             return
 
-        # Cập nhật dữ liệu thực tế và mã hóa lại với LabelEncoder
+        # Cập nhật dữ liệu thực tế
         history_data.extend(history)
         for item in history:
-            # Kiểm tra nếu item không phải 't' hoặc 'x' sẽ bỏ qua
-            if item in ["t", "x"]:
-                real_data.append([len(real_data), label_encoder.transform([item])[0]])
+            real_data.append([len(real_data), label_encoder.transform([item])[0]])
 
         # Huấn luyện mô hình nếu có dữ liệu mới
         update_models()
