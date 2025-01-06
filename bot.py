@@ -1,4 +1,4 @@
-là import os
+import os
 import os
 os.system("pip install scipy scikit-learn pandas")
 import random
