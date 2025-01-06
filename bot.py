@@ -1,4 +1,6 @@
 import os
+import os
+os.system("pip install scipy scikit-learn pandas")
 import random
 import numpy as np
 import hashlib
