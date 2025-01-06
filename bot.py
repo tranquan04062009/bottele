@@ -24,7 +24,7 @@ real_data = []
 
 # Sử dụng LabelEncoder để mã hóa 'Tài' và 'Xỉu'
 label_encoder = LabelEncoder()
-label_encoder.fit(["Tài", "Xỉu"])
+label_encoder.fit(["t", "x"])
 
 # Các mô hình học máy
 logistic_model = LogisticRegression()
@@ -39,9 +39,6 @@ def update_models():
         X = np.array([item[0] for item in real_data]).reshape(-1, 1)
         y = np.array([item[1] for item in real_data])
         
-        # Mã hóa nhãn y
-        y = label_encoder.transform(y)  # Đảm bảo tất cả nhãn đã được mã hóa
-
         logistic_model.fit(X, y)
         decision_tree_model.fit(X, y)
         random_forest_model.fit(X, y)
@@ -70,7 +67,7 @@ def weighted_prediction(history):
 
         return label_encoder.inverse_transform([majority_vote])[0]
     
-    return random.choice(['Tài', 'Xỉu'])
+    return random.choice(['t', 'x'])
 
 def crack_md5(md5_hash):
     """
@@ -81,7 +78,7 @@ def crack_md5(md5_hash):
         return tx_dictionary[md5_hash]
 
     # Tấn công brute force với các giá trị phổ biến
-    for guess in ["Tài", "Xỉu"]:
+    for guess in ["t", "x"]:
         if hashlib.md5(guess.encode()).hexdigest() == md5_hash:
             return guess
 
@@ -195,13 +192,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Khởi chạy bot
 if __name__ == "__main__":
-    application = ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token(TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("tx", tx))
-    application.add_handler(CommandHandler("txmd", txmd))
-    application.add_handler(CommandHandler("add", add))
-    application.add_handler(CommandHandler("history", history))
-    application.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("tx", tx))
+    app.add_handler(CommandHandler("add", add))
+    app.add_handler(CommandHandler("history", history))
+    app.add_handler(CommandHandler("txmd", txmd))
+    app.add_handler(CommandHandler("help", help_command))
 
-    application.run_polling()
+    print("Bot đang chạy...")
+    app.run_polling()
