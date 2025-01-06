@@ -24,7 +24,7 @@ real_data = []
 
 # Sử dụng LabelEncoder để mã hóa 'Tài' và 'Xỉu'
 label_encoder = LabelEncoder()
-label_encoder.fit(["t", "x"])
+label_encoder.fit(["t", "x"])  # Đảm bảo rằng chúng ta chỉ mã hóa t và x
 
 # Các mô hình học máy
 logistic_model = LogisticRegression()
@@ -38,7 +38,7 @@ def update_models():
     if len(real_data) > 1:
         X = np.array([item[0] for item in real_data]).reshape(-1, 1)
         y = np.array([item[1] for item in real_data])
-        
+
         logistic_model.fit(X, y)
         decision_tree_model.fit(X, y)
         random_forest_model.fit(X, y)
@@ -60,13 +60,13 @@ def weighted_prediction(history):
         random_forest_pred = random_forest_model.predict(X)
         svm_pred = svm_model.predict(X)
         ann_pred = ann_model.predict(X)
-        
+
         # Tính toán kết quả chung từ các mô hình
         predictions = [logistic_pred[-1], decision_tree_pred[-1], random_forest_pred[-1], svm_pred[-1], ann_pred[-1]]
         majority_vote = np.bincount(predictions).argmax()
 
         return label_encoder.inverse_transform([majority_vote])[0]
-    
+
     return random.choice(['t', 'x'])
 
 def crack_md5(md5_hash):
@@ -184,22 +184,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/add [kết quả]: Cập nhật kết quả thực tế.\n"
         "/history: Xem lịch sử gần đây.\n"
         "/txmd [md5]: Giải mã MD5 để tìm kết quả.\n"
-        "Ví dụ:\n"
-        "- /tx t t x t x\n"
-        "- /add t x x t t\n"
-        "- /txmd dcdc87f0faabc6d5b3c25b9b78c01d0e"
+        "/help: Hiển thị hướng dẫn."
     )
 
-# Khởi chạy bot
-if __name__ == "__main__":
+# Khởi tạo ứng dụng và các handler
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("tx", tx))
+    app.add_handler(CommandHandler("txmd", txmd))
     app.add_handler(CommandHandler("add", add))
     app.add_handler(CommandHandler("history", history))
-    app.add_handler(CommandHandler("txmd", txmd))
     app.add_handler(CommandHandler("help", help_command))
 
     print("Bot đang chạy...")
-    app.run_polling()
+    await app.run_polling()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
