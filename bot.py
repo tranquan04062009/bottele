@@ -227,43 +227,45 @@ async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
 
-# Lệnh /add: Thêm dữ liệu
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_input = ' '.join(context.args)
         if not user_input:
-            await update.message.reply_text("Vui lòng nhập dữ liệu dạng: 't x t | 12 6 8'.")
+            await update.message.reply_text("Vui lòng nhập dữ liệu dạng: 't x t | 15 10 9'.")
             return
 
+        # Tách lịch sử và súc sắc
         parts = user_input.split("|")
         if len(parts) != 2:
-            await update.message.reply_text("Dữ liệu không hợp lệ! Nhập dạng 't x t | 15 10 9 4 13'.")
+            await update.message.reply_text("Dữ liệu không hợp lệ! Nhập dạng 't x t | 15 10 9'.")
             return
 
-        # Tách phần lịch sử Tài/Xỉu và dữ liệu súc sắc
+        # Xử lý lịch sử
         history = parts[0].strip().split()
-        dice_values = list(map(int, parts[1].strip().split()))
-
-        # Kiểm tra dữ liệu hợp lệ
         if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text("Lịch sử chỉ được chứa 't' hoặc 'x'.")
+            await update.message.reply_text("Lịch sử chỉ được chứa 't' (Tài) hoặc 'x' (Xỉu).")
             return
-        if not all(isinstance(i, int) for i in dice_values):
-            await update.message.reply_text("Dữ liệu súc sắc phải là số nguyên.")
+
+        # Xử lý dữ liệu súc sắc
+        try:
+            dice_values = list(map(int, parts[1].strip().split()))
+        except ValueError:
+            await update.message.reply_text("Dữ liệu súc sắc phải là số nguyên, cách nhau bởi dấu cách.")
+            return
+
+        # Kiểm tra dữ liệu súc sắc phải có 3 số
+        if len(dice_values) != 3:
+            await update.message.reply_text("Dữ liệu súc sắc phải chứa đúng 3 số nguyên.")
             return
 
         # Thêm vào bộ nhớ
         history_data.extend(history)
         dice_data.extend(dice_values)
 
-        await update.message.reply_text(
-            f"Đã thêm dữ liệu thành công!\n"
-            f"- Lịch sử: {' '.join(history)}\n"
-            f"- Súc sắc: {', '.join(map(str, dice_values))}"
-        )
+        await update.message.reply_text("Dữ liệu đã được thêm thành công!")
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
-
+        
 # Lệnh /history: Xem lịch sử
 async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     history_str = ', '.join(history_data)
