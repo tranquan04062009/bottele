@@ -1,5 +1,6 @@
 import os
 os.system("pip install scikit-learn")
+import os
 import random
 from collections import Counter, deque
 from telegram import Update
@@ -95,8 +96,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- /s: Xác nhận kết quả sai.\n"
         "- /help: Hướng dẫn sử dụng.\n"
     )
-
-# Lệnh /add: Thêm dữ liệu mới vào lịch sử hoặc súc sắc
+    # Lệnh /add: Thêm dữ liệu mới vào lịch sử hoặc súc sắc
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_input = ' '.join(context.args)
@@ -195,22 +195,26 @@ async def confirm_incorrect(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Lệnh /history: Xem lịch sử
 async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"Lịch sử Tài/Xỉu: {' '.join(history_data) if history_data else 'Chưa có dữ liệu.'}\n"
-        f"Dữ liệu súc sắc: {', '.join(map(str, dice_data)) if dice_data else 'Chưa có dữ liệu.'}"
-    )
+    if not history_data and not dice_data:
+        await update.message.reply_text("Chưa có dữ liệu lịch sử.")
+    else:
+        await update.message.reply_text(
+            f"Lịch sử gần nhất:\n"
+            f"Tài/Xỉu: {' '.join(history_data)}\n"
+            f"Súc sắc: {', '.join(map(str, dice_data))}"
+        )
 
 # Lệnh /help: Hướng dẫn sử dụng
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Danh sách các lệnh:\n"
-        "- /tx <chuỗi lịch sử>: Dự đoán dựa trên lịch sử.\n"
-        "- /txs <dãy số>: Dự đoán kết hợp từ lịch sử và súc sắc.\n"
-        "- /add <lịch sử | súc sắc>: Thêm dữ liệu mới.\n"
-        "- /history: Xem lịch sử.\n"
-        "- /đ: Xác nhận kết quả đúng.\n"
-        "- /s: Xác nhận kết quả sai.\n"
-        "- /help: Hướng dẫn sử dụng.\n"
+        "Hướng dẫn sử dụng bot:\n"
+        "/tx <chuỗi lịch sử>: Dự đoán dựa trên lịch sử.\n"
+        "/txs <dãy số>: Dự đoán kết hợp lịch sử và súc sắc.\n"
+        "/add <lịch sử | súc sắc>: Thêm dữ liệu mới.\n"
+        "/history: Xem lịch sử.\n"
+        "/đ: Xác nhận kết quả đúng.\n"
+        "/s: Xác nhận kết quả sai.\n"
+        "/help: Hướng dẫn sử dụng."
     )
 
 # ==============================
