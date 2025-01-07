@@ -5,8 +5,6 @@ import numpy as np
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from collections import Counter, deque
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import LabelEncoder
 
 # Lấy token từ biến môi trường
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -15,36 +13,6 @@ if not TOKEN:
 
 # Bộ nhớ lịch sử thực tế (cập nhật mỗi khi có trận đấu mới)
 history_data = deque(maxlen=100)  # Lưu trữ tối đa 100 kết quả
-train_data = []  # Lịch sử để huấn luyện
-train_labels = []
-le = LabelEncoder()
-model = LogisticRegression()
-
-def train_model():
-    """
-    Huấn luyện mô hình Machine Learning dựa trên lịch sử thực tế.
-    """
-    if len(train_data) >= 10:  # Chỉ huấn luyện nếu có đủ dữ liệu
-        X = np.array(train_data)
-        y = le.fit_transform(train_labels)
-        model.fit(X, y)
-
-def ml_prediction(history, dice_sum=None):
-    """
-    Dự đoán bằng Machine Learning kết hợp lịch sử và dữ liệu súc sắc.
-    """
-    if len(train_data) < 10:
-        return weighted_recent_analysis(history)  # Quay về dự đoán gần nhất nếu thiếu dữ liệu
-
-    # Chuyển đổi lịch sử thành dạng vector (0: Tài, 1: Xỉu)
-    encoded_history = le.transform(history[-5:])  # Sử dụng 5 phần tử gần nhất
-    features = np.array([encoded_history])
-
-    if dice_sum is not None:
-        features = np.concatenate((features, np.array([[dice_sum]])), axis=1)
-
-    prediction = model.predict(features)
-    return le.inverse_transform(prediction)[0]
 
 def analyze_real_data(history):
     """
@@ -63,60 +31,66 @@ def analyze_real_data(history):
 
     return None
 
-def weighted_recent_analysis(history):
+def weighted_prediction(history):
     """
-    Phân tích trọng số ưu tiên kết quả gần nhất.
+    Dự đoán dựa trên phân phối tần suất thực tế.
     """
-    weights = np.arange(1, len(history) + 1)
+    if not history:
+        return random.choice(["t", "x"])
+
+    # Tính tần suất xuất hiện của mỗi kết quả
     counter = Counter(history)
-    prob_tai = counter["t"] * weights[-1] / sum(weights)
-    prob_xiu = counter["x"] * weights[-1] / sum(weights)
-    return "t" if prob_tai > prob_xiu else "x"
+    total = len(history)
 
-def longest_sequence_analysis(history):
+    prob_tai = counter["t"] / total
+    prob_xiu = counter["x"] / total
+
+    # Dự đoán dựa trên trọng số
+    return "t" if random.random() < prob_tai else "x"
+
+def total_dice_prediction(dice_values):
     """
-    Tìm chuỗi dài nhất của một ký tự trong lịch sử.
+    Dự đoán kết quả dựa trên tổng điểm của các viên súc sắc.
     """
-    current = max_streak = history[0]
-    current_count = max_count = 1
+    total_points = sum(dice_values)
 
-    for i in range(1, len(history)):
-        if history[i] == current:
-            current_count += 1
-        else:
-            current = history[i]
-            current_count = 1
+    # Tính xác suất theo tổng điểm của các viên súc sắc
+    if total_points % 2 == 0:
+        return "x"  # Xỉu (Tổng điểm chẵn)
+    else:
+        return "t"  # Tài (Tổng điểm lẻ)
 
-        if current_count > max_count:
-            max_streak = current
-            max_count = current_count
-
-    return max_streak
-
-def combined_prediction(history, dice_sum=None):
+def combine_predictions(history, dice_values):
     """
-    Kết hợp các phương pháp dự đoán.
+    Kết hợp dự đoán từ lịch sử và tổng điểm súc sắc sử dụng trọng số toán học.
     """
-    # Phân tích chuỗi liên tiếp
-    streak_prediction = analyze_real_data(history)
-    if streak_prediction:
-        return streak_prediction
+    # Phân tích kết quả dựa trên lịch sử
+    rule_prediction = analyze_real_data(history)
+    if rule_prediction:
+        return rule_prediction
 
-    # Dự đoán chuỗi dài nhất
-    sequence_prediction = longest_sequence_analysis(history)
+    # Dự đoán dựa trên trọng số từ lịch sử
+    history_prediction = weighted_prediction(history)
 
-    # Dự đoán bằng Machine Learning kết hợp lịch sử và tổng điểm súc sắc
-    ml_result = ml_prediction(history, dice_sum)
+    # Dự đoán dựa trên tổng điểm súc sắc
+    dice_prediction = total_dice_prediction(dice_values)
 
-    # Kết hợp dự đoán
-    return random.choice([sequence_prediction, ml_result])
+    # Kết hợp xác suất dự đoán từ cả hai nguồn dữ liệu
+    history_prob = Counter(history)["t"] / len(history) if len(history) > 0 else 0.5
+    dice_prob = 0.5  # Giả sử xác suất cho tổng điểm chẵn và lẻ là tương đương
+
+    # Sử dụng trọng số để kết hợp các dự đoán
+    if random.random() < (history_prob + dice_prob) / 2:
+        return history_prediction
+    else:
+        return dice_prediction
 
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Chào mừng bạn đến với bot dự đoán Tài Xỉu thực tế!\n"
-        "Sử dụng lệnh /tx để nhận dự đoán.\n"
-        "Nhập /help để biết thêm thông tin chi tiết."
+        "Chào mừng bạn đến với bot dự đoán Tài/Xỉu!\n"
+        "Sử dụng lệnh /tx để nhận dự đoán từ lịch sử Tài/Xỉu.\n"
+        "Sử dụng lệnh /txs để nhận dự đoán kết hợp từ tổng điểm súc sắc và lịch sử."
     )
 
 # Lệnh /tx
@@ -140,14 +114,8 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Cập nhật lịch sử thực tế vào bộ nhớ
         history_data.extend(history)
 
-        # Thêm vào dữ liệu huấn luyện
-        if len(history) >= 5:  # Chỉ thêm khi có đủ dữ liệu
-            train_data.append(le.fit_transform(history[-5:]))
-            train_labels.append(history[-1])
-            train_model()
-
         # Dự đoán kết quả
-        result = combined_prediction(list(history_data))
+        result = weighted_prediction(list(history_data))
         await update.message.reply_text(f"Kết quả dự đoán của tôi: {'Tài' if result == 't' else 'Xỉu'}")
 
     except Exception as e:
@@ -157,21 +125,26 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Lấy dãy số súc sắc từ người dùng
-        dice_input = ''.join(context.args)
+        user_input = ''.join(context.args)
 
-        if not dice_input:
-            await update.message.reply_text("Vui lòng nhập dãy số súc sắc (ví dụ: 12 6 8 14)! ")
+        if not user_input:
+            await update.message.reply_text("Vui lòng nhập dãy số súc sắc (ví dụ: 12 6 8 14)!")
             return
 
-        # Chuyển dãy súc sắc thành danh sách các số
-        dice_numbers = list(map(int, dice_input.split()))
+        # Chuyển đổi dãy số súc sắc thành danh sách
+        dice_values = list(map(int, user_input.split()))
 
-        # Tính tổng điểm của các viên súc sắc
-        dice_sum = sum(dice_numbers)
+        # Kiểm tra định dạng hợp lệ (chỉ chấp nhận các số nguyên)
+        if not all(isinstance(i, int) for i in dice_values):
+            await update.message.reply_text("Dãy súc sắc chỉ được chứa các số nguyên.")
+            return
 
         # Cập nhật lịch sử thực tế vào bộ nhớ
-        result = combined_prediction(list(history_data), dice_sum)
-        await update.message.reply_text(f"Kết quả dự đoán của tôi (kết hợp dữ liệu súc sắc): {'Tài' if result == 't' else 'Xỉu'}")
+        history_data.extend(dice_values)
+
+        # Dự đoán kết hợp từ lịch sử và tổng điểm súc sắc
+        result = combine_predictions(list(history_data), dice_values)
+        await update.message.reply_text(f"Kết quả dự đoán của tôi: {'Tài' if result == 't' else 'Xỉu'}")
 
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
@@ -195,13 +168,6 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Cập nhật dữ liệu mới
         history_data.extend(new_data)
-
-        # Thêm vào dữ liệu huấn luyện
-        for i in range(len(new_data) - 5 + 1):  # Huấn luyện với từng tập dữ liệu
-            train_data.append(le.fit_transform(new_data[i:i + 5]))
-            train_labels.append(new_data[i + 4])
-            train_model()
-
         await update.message.reply_text(f"Dữ liệu thực tế đã được cập nhật: {new_data}")
 
     except Exception as e:
@@ -212,7 +178,7 @@ async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not history_data:
         await update.message.reply_text("Hiện tại chưa có dữ liệu lịch sử.")
     else:
-        await update.message.reply_text(f"Lịch sử gần nhất: {''.join(history_data)}")
+        await update.message.reply_text(f"Lịch sử gần nhất: {' '.join(map(str, history_data))}")
 
 # Lệnh /help
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -224,19 +190,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/add <dãy kết quả thực tế>: Cập nhật dữ liệu thực tế mới."
     )
 
-def main():
-    application = ApplicationBuilder().token(TOKEN).build()
+# Khởi chạy bot
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(TOKEN).build()
 
     # Các lệnh trong bot
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("tx", tx))
-    application.add_handler(CommandHandler("txs", txs))
-    application.add_handler(CommandHandler("add", add))
-    application.add_handler(CommandHandler("history", history))
-    application.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("tx", tx))
+    app.add_handler(CommandHandler("txs", txs))
+    app.add_handler(CommandHandler("add", add))
+    app.add_handler(CommandHandler("history", history))
+    app.add_handler(CommandHandler("help", help_command))
 
-    # Chạy bot
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+    app.run_polling()
