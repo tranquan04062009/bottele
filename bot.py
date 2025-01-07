@@ -61,6 +61,8 @@ scaler = MinMaxScaler(feature_range=(0, 1))
 
 # Khởi tạo bộ mã hóa One-Hot cho lịch sử
 # Kiểm tra dữ liệu đầu vào
+sequence_length = 5
+
 if len(history_data) < sequence_length or len(dice_data) < sequence_length:
     print("Không đủ dữ liệu để huấn luyện hoặc dự đoán.")
     exit()
