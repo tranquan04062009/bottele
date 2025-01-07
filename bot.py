@@ -351,8 +351,8 @@ async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             dice_values = list(map(int, context.args))
-            if not all(1 <= value <= 15 for value in dice_values):
-                await update.message.reply_text("Dữ liệu xúc xắc chỉ được chứa các số từ 1 đến 15.")
+            if not all(1 <= value <= 18 for value in dice_values):
+                await update.message.reply_text("Dữ liệu xúc xắc chỉ được chứa các số từ 1 đến 18.")
                 return
         except ValueError:
             await update.message.reply_text("Dữ liệu xúc xắc phải là các số nguyên cách nhau bởi dấu cách.")
