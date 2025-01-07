@@ -59,15 +59,17 @@ lr_model = LogisticRegression()
 rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
 scaler = MinMaxScaler(feature_range=(0, 1))
 
-history_data_num = [0 if item == "t" else 1 for item in history_data]
+# Khởi tạo bộ mã hóa One-Hot cho lịch sử
+encoder = OneHotEncoder(sparse=False)
+
+# Chuyển đổi "t" và "x" thành vector one-hot
+history_data_onehot = encoder.fit_transform(np.array(history_data).reshape(-1, 1))
+
+# Kết hợp lịch sử và dữ liệu xúc xắc
+data = np.hstack((history_data_onehot, np.array(dice_data).reshape(-1, 1)))
 
 # Chuẩn hóa dữ liệu
 scaler = MinMaxScaler(feature_range=(0, 1))
-
-# Kết hợp lịch sử và dữ liệu xúc xắc
-data = np.array([history_data, dice_data]).T  # Ghép dữ liệu lịch sử và dữ liệu xúc xắc
-
-# Chuẩn hóa dữ liệu
 scaled_data = scaler.fit_transform(data)
 
 # Tạo các chuỗi dữ liệu huấn luyện cho LSTM
@@ -77,7 +79,7 @@ sequence_length = 5  # Độ dài chuỗi cho LSTM
 
 for i in range(sequence_length, len(scaled_data)):
     X.append(scaled_data[i-sequence_length:i])
-    y.append(history_data_num[i])
+    y.append(0 if history_data[i] == "t" else 1)
 
 X = np.array(X)
 y = np.array(y)
@@ -119,9 +121,9 @@ model.fit(
 model = load_model("lstm_best_model.keras")
 
 # Dự đoán mới
-new_data = np.array([history_data_num, dice_data]).T
+new_data = np.hstack((history_data_onehot[-sequence_length:], np.array(dice_data[-sequence_length:]).reshape(-1, 1)))
 scaled_new_data = scaler.transform(new_data)
-X_new = np.array([scaled_new_data[-sequence_length:]])
+X_new = np.array([scaled_new_data])
 
 # Dự đoán
 prediction = model.predict(X_new)
@@ -203,7 +205,7 @@ def optimize_hyperparameters(history_data, dice_data, labels):
 
     return grid_rf.best_params_, grid_lr.best_params_
     
-def train_models():
+def train_models(history_data, dice_data):
     try:
         # Chuyển dữ liệu Tài/Xỉu thành nhãn
         history_labels = [1 if result == "t" else 0 for result in history_data]
