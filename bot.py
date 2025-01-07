@@ -1,200 +1,190 @@
 import os
 os.system("pip install scikit-learn")
 import random
-import numpy as np
+from collections import Counter, deque
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from collections import Counter, deque
 
-# Lấy token từ biến môi trường
+# Token bot Telegram
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TOKEN:
     raise ValueError("Vui lòng đặt biến môi trường TELEGRAM_TOKEN chứa token bot!")
 
-# Bộ nhớ lịch sử thực tế (cập nhật mỗi khi có trận đấu mới)
-history_data = deque(maxlen=500)  # Lưu trữ tối đa 100 kết quả
+# Bộ nhớ lịch sử
+history_data = deque(maxlen=100)  # Lưu tối đa 100 kết quả Tài/Xỉu
+dice_data = deque(maxlen=100)     # Lưu tối đa 100 kết quả súc sắc
 
-def analyze_real_data(history):
+# ==============================
+# Các hàm hỗ trợ
+# ==============================
+
+def detect_pattern(history):
     """
-    Phân tích dữ liệu thực tế để phát hiện xu hướng phổ biến (cầu bệt, cầu 1-1).
+    Phát hiện kiểu cầu từ lịch sử:
+    - Cầu 1-1: Xen kẽ Tài - Xỉu
+    - Cầu bệt: Lặp lại liên tục Tài hoặc Xỉu
     """
-    if len(history) < 3:
-        return None
+    if len(history) < 4:
+        return "Không đủ dữ liệu để phát hiện cầu."
+    
+    is_one_one = all(history[i] != history[i+1] for i in range(len(history) - 1))
+    if is_one_one:
+        return "Cầu 1-1: Tài, Xỉu xen kẽ."
 
-    # Phân tích cầu bệt
-    if all(item == history[0] for item in history):
-        return history[0]
+    is_bet = all(history[i] == history[i+1] for i in range(len(history) - 1))
+    if is_bet:
+        return f"Cầu bệt: {history[0]} lặp lại."
 
-    # Phân tích cầu 1-1
-    if all(history[i] != history[i + 1] for i in range(len(history) - 1)):
-        return "t" if history[-1] == "x" else "x"
-
-    return None
+    return "Không phát hiện cầu rõ ràng."
 
 def weighted_prediction(history):
     """
-    Dự đoán dựa trên phân phối tần suất thực tế.
+    Dự đoán dựa trên trọng số Tài/Xỉu từ lịch sử.
     """
     if not history:
-        return random.choice(["t", "x"])
+        return random.choice(["t", "x"])  # Nếu không có lịch sử, dự đoán ngẫu nhiên
 
-    # Tính tần suất xuất hiện của mỗi kết quả
     counter = Counter(history)
-    total = len(history)
+    prob_tai = counter["t"] / len(history)
+    prob_xiu = counter["x"] / len(history)
 
-    prob_tai = counter["t"] / total
-    prob_xiu = counter["x"] / total
-
-    # Dự đoán dựa trên trọng số
-    return "t" if random.random() < prob_tai else "x"
-
-def total_dice_prediction(dice_values):
-    """
-    Dự đoán kết quả dựa trên tổng điểm của các viên súc sắc.
-    """
-    total_points = sum(dice_values)
-
-    # Tính xác suất theo tổng điểm của các viên súc sắc
-    if total_points % 2 == 0:
-        return "x"  # Xỉu (Tổng điểm chẵn)
-    else:
-        return "t"  # Tài (Tổng điểm lẻ)
+    return "t" if prob_tai > prob_xiu else "x"
 
 def combine_predictions(history, dice_values):
     """
-    Kết hợp dự đoán từ lịch sử và tổng điểm súc sắc sử dụng trọng số toán học.
+    Kết hợp dự đoán từ lịch sử và tổng súc sắc.
     """
-    # Phân tích kết quả dựa trên lịch sử
-    rule_prediction = analyze_real_data(history)
-    if rule_prediction:
-        return rule_prediction
-
-    # Dự đoán dựa trên trọng số từ lịch sử
+    total_points = sum(dice_values) if dice_values else 0
     history_prediction = weighted_prediction(history)
+    dice_prediction = "t" if total_points % 2 == 0 else "x"
 
-    # Dự đoán dựa trên tổng điểm súc sắc
-    dice_prediction = total_dice_prediction(dice_values)
+    # Ưu tiên dự đoán từ lịch sử nếu có xu hướng rõ ràng
+    return history_prediction if history_prediction == dice_prediction else dice_prediction
 
-    # Kết hợp xác suất dự đoán từ cả hai nguồn dữ liệu
-    history_prob = Counter(history)["t"] / len(history) if len(history) > 0 else 0.5
-    dice_prob = 0.5  # Giả sử xác suất cho tổng điểm chẵn và lẻ là tương đương
-
-    # Sử dụng trọng số để kết hợp các dự đoán
-    if random.random() < (history_prob + dice_prob) / 2:
-        return history_prediction
-    else:
-        return dice_prediction
+# ==============================
+# Các lệnh cho bot Telegram
+# ==============================
 
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Chào mừng bạn đến với bot dự đoán Tài/Xỉu!\n"
-        "Sử dụng lệnh /tx để nhận dự đoán từ lịch sử Tài/Xỉu.\n"
-        "Sử dụng lệnh /txs để nhận dự đoán kết hợp từ tổng điểm súc sắc và lịch sử."
+        "Sử dụng các lệnh sau để bắt đầu:\n"
+        "- /tx <chuỗi lịch sử>: Dự đoán dựa trên lịch sử.\n"
+        "- /txs <dãy số>: Dự đoán kết hợp từ lịch sử và súc sắc.\n"
+        "- /add <lịch sử | súc sắc>: Thêm dữ liệu mới.\n"
+        "- /history: Xem lịch sử.\n"
+        "- /help: Hướng dẫn sử dụng.\n"
     )
 
-# Lệnh /tx
+# Lệnh /tx: Dự đoán dựa trên lịch sử
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Lấy dãy số từ người dùng
         user_input = ''.join(context.args)
-
         if not user_input:
-            await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu)!")
+            await update.message.reply_text("Vui lòng nhập chuỗi lịch sử (t: Tài, x: Xỉu)!")
             return
 
-        # Chuyển đổi lịch sử thành danh sách
         history = list(user_input)
-
-        # Kiểm tra định dạng hợp lệ (chỉ chấp nhận "t" hoặc "x")
         if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
+            await update.message.reply_text("Dữ liệu chỉ được chứa 't' (Tài) hoặc 'x' (Xỉu).")
             return
 
-        # Cập nhật lịch sử thực tế vào bộ nhớ
-        history_data.extend(history)
+        history_data.extend(history)  # Cập nhật lịch sử
+        prediction = weighted_prediction(history)
+        pattern = detect_pattern(list(history_data))
 
-        # Dự đoán kết quả
-        result = weighted_prediction(list(history_data))
-        await update.message.reply_text(f"Kết quả dự đoán của tôi: {'Tài' if result == 't' else 'Xỉu'}")
-
+        await update.message.reply_text(
+            f"Dự đoán: {'Tài' if prediction == 't' else 'Xỉu'}\n"
+            f"Phát hiện cầu: {pattern}"
+        )
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
 
-# Lệnh /txs
+# Lệnh /txs: Dự đoán kết hợp lịch sử và súc sắc
 async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Lấy dãy số súc sắc từ người dùng
         user_input = ''.join(context.args)
-
         if not user_input:
-            await update.message.reply_text("Vui lòng nhập dãy số súc sắc (ví dụ: 12 6 8 14)!")
+            await update.message.reply_text("Vui lòng nhập dãy số súc sắc!")
             return
 
-        # Chuyển đổi dãy số súc sắc thành danh sách
         dice_values = list(map(int, user_input.split()))
-
-        # Kiểm tra định dạng hợp lệ (chỉ chấp nhận các số nguyên)
-        if not all(isinstance(i, int) for i in dice_values):
-            await update.message.reply_text("Dãy súc sắc chỉ được chứa các số nguyên.")
+        if not dice_values:
+            await update.message.reply_text("Dữ liệu súc sắc không hợp lệ.")
             return
 
-        # Cập nhật lịch sử thực tế vào bộ nhớ
-        history_data.extend(dice_values)
+        dice_data.extend(dice_values)  # Cập nhật dữ liệu súc sắc
+        prediction = combine_predictions(list(history_data), dice_values)
+        pattern = detect_pattern(list(history_data))
 
-        # Dự đoán kết hợp từ lịch sử và tổng điểm súc sắc
-        result = combine_predictions(list(history_data), dice_values)
-        await update.message.reply_text(f"Kết quả dự đoán của tôi: {'Tài' if result == 't' else 'Xỉu'}")
-
+        await update.message.reply_text(
+            f"Dự đoán: {'Tài' if prediction == 't' else 'Xỉu'}\n"
+            f"Phát hiện cầu: {pattern}\n"
+            f"Dữ liệu súc sắc: {', '.join(map(str, dice_values))}"
+        )
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
 
-# Lệnh /add (cập nhật dữ liệu thực tế)
+# Lệnh /add: Thêm dữ liệu mới
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        user_input = ''.join(context.args)
-
+        user_input = ' '.join(context.args)
         if not user_input:
-            await update.message.reply_text("Vui lòng nhập kết quả thực tế (t: Tài, x: Xỉu)!")
+            await update.message.reply_text("Vui lòng nhập dữ liệu dạng: 't x t | 12 6 8'.")
             return
 
-        # Chuyển đổi lịch sử thành danh sách
-        new_data = list(user_input)
-
-        # Kiểm tra định dạng hợp lệ
-        if not all(item in ["t", "x"] for item in new_data):
-            await update.message.reply_text("Kết quả chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
+        parts = user_input.split("|")
+        if len(parts) != 2:
+            await update.message.reply_text("Dữ liệu không hợp lệ! Nhập dạng 't x t | 12 6 8'.")
             return
 
-        # Cập nhật dữ liệu mới
-        history_data.extend(new_data)
-        await update.message.reply_text(f"Dữ liệu thực tế đã được cập nhật: {new_data}")
+        history = parts[0].strip().split()
+        dice_values = list(map(int, parts[1].strip().split()))
 
+        if not all(item in ["t", "x"] for item in history):
+            await update.message.reply_text("Lịch sử chỉ được chứa 't' hoặc 'x'.")
+            return
+        if not all(isinstance(i, int) for i in dice_values):
+            await update.message.reply_text("Dữ liệu súc sắc phải là số nguyên.")
+            return
+
+        history_data.extend(history)
+        dice_data.extend(dice_values)
+
+        await update.message.reply_text("Dữ liệu đã được thêm thành công!")
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
 
-# Lệnh /history (xem lịch sử)
+# Lệnh /history: Xem lịch sử
 async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not history_data:
-        await update.message.reply_text("Hiện tại chưa có dữ liệu lịch sử.")
+    if not history_data and not dice_data:
+        await update.message.reply_text("Chưa có dữ liệu lịch sử.")
     else:
-        await update.message.reply_text(f"Lịch sử gần nhất: {' '.join(map(str, history_data))}")
+        await update.message.reply_text(
+            f"Lịch sử gần nhất:\n"
+            f"Tài/Xỉu: {' '.join(history_data)}\n"
+            f"Súc sắc: {', '.join(map(str, dice_data))}"
+        )
 
-# Lệnh /help
+# Lệnh /help: Hướng dẫn sử dụng
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Hướng dẫn sử dụng bot:\n"
-        "/tx <dãy lịch sử (t/x)>: Dự đoán kết quả dựa trên lịch sử Tài/Xỉu.\n"
-        "/txs <dãy súc sắc (12 6 8 14)>: Dự đoán kết quả dựa trên tổng điểm súc sắc.\n"
-        "/history: Xem lịch sử kết quả.\n"
-        "/add <dãy kết quả thực tế>: Cập nhật dữ liệu thực tế mới."
+        "/tx <chuỗi lịch sử>: Dự đoán dựa trên lịch sử.\n"
+        "/txs <dãy số>: Dự đoán kết hợp lịch sử và súc sắc.\n"
+        "/add <lịch sử | súc sắc>: Thêm dữ liệu mới.\n"
+        "/history: Xem lịch sử.\n"
+        "/help: Hướng dẫn sử dụng."
     )
 
+# ==============================
 # Khởi chạy bot
+# ==============================
+
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Các lệnh trong bot
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("tx", tx))
     app.add_handler(CommandHandler("txs", txs))
