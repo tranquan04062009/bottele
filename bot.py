@@ -1,7 +1,6 @@
 import os
 os.system("pip install scikit-learn")
-os.system("pip install tensorflow")
-os.system("pip uninstall tensorflow-gpu")
+os.system("pip install tensorflow==2.11.0")
 import random
 from collections import Counter, deque
 from sklearn.naive_bayes import GaussianNB
