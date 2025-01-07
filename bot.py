@@ -7,10 +7,12 @@ import threading
 import time
 from collections import Counter, deque
 from sklearn.naive_bayes import GaussianNB
+from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
+from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -46,6 +48,8 @@ def build_lstm_model(input_shape):
     model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
     return model
 
+lstm_checkpoint = ModelCheckpoint("lstm_best_model.h5", monitor="loss", save_best_only=True, verbose=1)
+
 # ==============================
 # Các hàm hỗ trợ
 # ==============================
@@ -64,22 +68,13 @@ def detect_pattern(history):
     if is_bet:
         return f"Cầu bệt: {history[0]} lặp lại."
 
-    # Phát hiện cầu 2-2
-    if len(history) >= 4 and all(history[i] == history[i + 1] and history[i] != history[i + 2] for i in range(0, len(history) - 3, 2)):
-        return "Cầu 2-2: Tài, Xỉu lặp lại theo cặp."
-
-    # Phát hiện cầu 3-3
-    if len(history) >= 6 and all(history[i] == history[i + 2] and history[i + 1] == history[i + 3] for i in range(0, len(history) - 5, 3)):
-        return "Cầu 3-3: Tài, Xỉu lặp lại theo nhóm ba."
-
     return "Không phát hiện cầu rõ ràng."
     
 def weighted_prediction(history):
     if not history:
-        return random.choice(["t", "x"]), 50.0, 50.0  # Nếu không có lịch sử, dự đoán ngẫu nhiên với tỷ lệ 50/50
+        return random.choice(["t", "x"]), 50.0, 50.0
 
-    # Áp dụng trọng số giảm dần cho các kết quả gần đây
-    weights = [1 / (i + 1) for i in range(len(history))]
+    weights = [0.8**i for i in range(len(history))]
     counter = {"t": 0, "x": 0}
 
     for i, result in enumerate(history):
@@ -89,9 +84,31 @@ def weighted_prediction(history):
     prob_tai = (counter["t"] / total_weight) * 100
     prob_xiu = (counter["x"] / total_weight) * 100
 
-    # Dự đoán dựa trên xác suất cao hơn
     prediction = "t" if prob_tai > prob_xiu else "x"
     return prediction, prob_tai, prob_xiu
+
+def optimize_hyperparameters(history_data, dice_data, labels):
+    # Kết hợp dữ liệu lịch sử và xúc xắc thành một tập hợp
+    X_combined = np.array([history_data + dice_data])
+    y_combined = np.array(labels)
+
+    # Chuẩn hóa dữ liệu
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_combined)
+
+    # Tối ưu Random Forest
+    rf_params = {'n_estimators': [100, 200, 300], 'max_depth': [None, 10, 20]}
+    grid_rf = GridSearchCV(RandomForestClassifier(random_state=42), rf_params, cv=3, scoring='accuracy')
+    grid_rf.fit(X_scaled, y_combined)
+    print("Best Random Forest Params:", grid_rf.best_params_)
+
+    # Tối ưu Logistic Regression
+    lr_params = {'C': [0.01, 0.1, 1, 10]}
+    grid_lr = GridSearchCV(LogisticRegression(max_iter=1000), lr_params, cv=3, scoring='accuracy')
+    grid_lr.fit(X_scaled, y_combined)
+    print("Best Logistic Regression Params:", grid_lr.best_params_)
+
+    return grid_rf.best_params_, grid_lr.best_params_
     
 def train_models():
     try:
@@ -130,26 +147,38 @@ def train_models():
         print(f"Lỗi khi huấn luyện mô hình: {e}")
 
 # Hàm dự đoán từ nhiều mô hình
-def predict_combined(dice_values):
+def predict_combined(dice_values, history):
     try:
-        total = sum(dice_values)  # Tổng giá trị súc sắc
-        even_odd = total % 2  # Chẵn/lẻ
-        index = len(history_data)
+        # Kiểm tra dữ liệu đầu vào
+        validate_input_data(dice_values)
 
-        # Dữ liệu đầu vào
-        input_features = np.array([[index, total, even_odd]])
-        input_scaled = scaler.transform(input_features)
+        # Tính tổng, chẵn/lẻ từ xúc xắc
+        total = sum(dice_values)
+        even_odd = total % 2  # 0: chẵn, 1: lẻ
 
-        # Dự đoán từ từng mô hình
-        prob_nb = nb_model.predict_proba(input_scaled)[:, 1][0]
-        prob_lr = lr_model.predict_proba(input_scaled)[:, 1][0]
-        prob_rf = rf_model.predict_proba(input_scaled)[:, 1][0]
+        # Thống kê từ lịch sử
+        count_tai = history.count("t")
+        count_xiu = history.count("x")
+        total_history = len(history)
+        ratio_tai = count_tai / total_history if total_history > 0 else 0
+        ratio_xiu = count_xiu / total_history if total_history > 0 else 0
 
-        # Tổng hợp dự đoán
-        combined_prob = (prob_nb + prob_lr + prob_rf) / 3
-        return "t" if combined_prob > 0.5 else "x"
+        # Dữ liệu đầu vào cho mô hình
+        input_features = np.array([[total, even_odd, ratio_tai, ratio_xiu]])
+        input_scaled = scaler.transform(input_features)  # Chuẩn hóa dữ liệu
+
+        # Dự đoán bằng voting model
+        prob_voting = voting_model.predict_proba(input_scaled)[:, 1][0]
+        prediction = "t" if prob_voting > 0.5 else "x"
+
+        # Tính xác suất cho tài/xỉu
+        prob_tai = prob_voting * 100  # Xác suất tài
+        prob_xiu = (1 - prob_voting) * 100  # Xác suất xỉu
+
+        return prediction, prob_tai, prob_xiu
     except Exception as e:
-        return f"Lỗi khi dự đoán: {e}"
+        log_error(e)  # Ghi lại lỗi để debug
+        return None, 0, 0  # Trả về dự đoán mặc định
 # ==============================
 # Các lệnh cho bot Telegram
 # ==============================
@@ -186,22 +215,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Lệnh /tx: Dự đoán dựa trên lịch sử
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        user_input = ''.join(context.args)
-        if not user_input:
+        # Nhận chuỗi lịch sử từ người dùng
+        user_history = ''.join(context.args).strip()
+        if not user_history:
             await update.message.reply_text("Vui lòng nhập chuỗi lịch sử (t: Tài, x: Xỉu)!")
             return
 
-        history = list(user_input)
+        # Xác thực chuỗi lịch sử
+        history = list(user_history)
         if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text("Dữ liệu chỉ được chứa 't' (Tài) hoặc 'x' (Xỉu).")
+            await update.message.reply_text("Dữ liệu lịch sử chỉ được chứa 't' (Tài) hoặc 'x' (Xỉu).")
             return
 
+        # Nhận dãy số xúc xắc từ người dùng
+        dice_values = context.args[1:]  # Lấy các tham số sau chuỗi lịch sử
+        dice_values = list(map(int, dice_values)) if dice_values else []
+
+        # Xác thực dữ liệu xúc xắc
+        if not all(1 <= value <= 6 for value in dice_values):
+            await update.message.reply_text("Dữ liệu súc sắc phải là các số từ 1 đến 6.")
+            return
+
+        # Cập nhật dữ liệu toàn cục
         history_data.extend(history)
-        prediction, prob_tai, prob_xiu = weighted_prediction(history)
+        dice_data.extend(dice_values)
+
+        # Tính toán dự đoán dựa trên dữ liệu
+        prediction, prob_tai, prob_xiu = weighted_prediction(list(history_data), dice_data)
         pattern = detect_pattern(list(history_data))
 
+        # Gửi dự đoán kèm nút xác nhận
         buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Đúng", callback_data=f"correct|{prediction}"), 
+            [InlineKeyboardButton("✅ Đúng", callback_data=f"correct|{prediction}"),
              InlineKeyboardButton("❌ Sai", callback_data=f"wrong|{prediction}")]
         ])
 
@@ -215,25 +260,30 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
 
-# Lệnh /txs: Dự đoán kết hợp lịch sử và súc sắc
+# Lệnh /txs: Lệnh riêng xử lý súc sắc (nếu cần)
 async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        user_input = ''.join(context.args)
+        # Nhận dãy số xúc xắc
+        user_input = ''.join(context.args).strip()
         if not user_input:
             await update.message.reply_text("Vui lòng nhập dãy số súc sắc!")
             return
 
         dice_values = list(map(int, user_input.split()))
-        if not dice_values:
-            await update.message.reply_text("Dữ liệu súc sắc không hợp lệ.")
+        if not all(1 <= value <= 6 for value in dice_values):
+            await update.message.reply_text("Dữ liệu súc sắc phải là các số từ 1 đến 6.")
             return
 
+        # Cập nhật dữ liệu toàn cục
         dice_data.extend(dice_values)
-        prediction, prob_tai, prob_xiu = weighted_prediction(list(history_data))
+
+        # Dự đoán dựa trên dữ liệu hiện có
+        prediction, prob_tai, prob_xiu = weighted_prediction(list(history_data), dice_data)
         pattern = detect_pattern(list(history_data))
 
+        # Gửi dự đoán kèm nút xác nhận
         buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Đúng", callback_data=f"correct|{prediction}"), 
+            [InlineKeyboardButton("✅ Đúng", callback_data=f"correct|{prediction}"),
              InlineKeyboardButton("❌ Sai", callback_data=f"wrong|{prediction}")]
         ])
 
@@ -246,7 +296,7 @@ async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
-
+        
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_input = ' '.join(context.args)
