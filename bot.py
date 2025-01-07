@@ -253,11 +253,6 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Dữ liệu súc sắc phải là số nguyên, cách nhau bởi dấu cách.")
             return
 
-        # Kiểm tra dữ liệu súc sắc phải có 3 số
-        if len(dice_values) != 3:
-            await update.message.reply_text("Dữ liệu súc sắc phải chứa đúng 3 số nguyên.")
-            return
-
         # Thêm vào bộ nhớ
         history_data.extend(history)
         dice_data.extend(dice_values)
