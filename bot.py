@@ -97,33 +97,36 @@ def detect_pattern(history):
 
     return "Không phát hiện cầu rõ ràng."
     
-def weighted_prediction(history):
-    if not history:
-        return random.choice(["t", "x"]), 50.0, 50.0
-
-    weights = [0.8**i for i in range(len(history))]
-    counter = {"t": 0, "x": 0}
-
-    for i, result in enumerate(history):
-        counter[result] += weights[i]
-
-    total_weight = sum(weights)
-    prob_tai = (counter["t"] / total_weight) * 100
-    prob_xiu = (counter["x"] / total_weight) * 100
-
-    prediction = "t" if prob_tai > prob_xiu else "x"
-    return prediction, prob_tai, prob_xiu
-
-def combine_predictions(history, dice_values):
+def combined_prediction(history, dice_values):
     """
     Kết hợp dự đoán từ lịch sử và tổng súc sắc.
     """
-    prediction, prob_tai, prob_xiu = weighted_prediction(history)
+    # Nếu lịch sử rỗng, trả về dự đoán ngẫu nhiên
+    if not history:
+        prediction = random.choice(["t", "x"])
+        prob_tai = prob_xiu = 50.0
+    else:
+        # Tính trọng số cho lịch sử
+        weights = [0.8**i for i in range(len(history))]
+        counter = {"t": 0, "x": 0}
+
+        for i, result in enumerate(history):
+            counter[result] += weights[i]
+
+        total_weight = sum(weights)
+        prob_tai = (counter["t"] / total_weight) * 100
+        prob_xiu = (counter["x"] / total_weight) * 100
+
+        # Dự đoán dựa trên lịch sử
+        prediction = "t" if prob_tai > prob_xiu else "x"
+
+    # Tính tổng điểm từ dữ liệu xúc xắc
     total_points = sum(dice_values) if dice_values else 0
     dice_prediction = "t" if total_points % 2 == 0 else "x"
 
-    # Ưu tiên dự đoán từ lịch sử nếu có xu hướng rõ ràng
+    # Kết hợp dự đoán từ lịch sử và dữ liệu xúc xắc
     final_prediction = prediction if prediction == dice_prediction else dice_prediction
+
     return final_prediction, prob_tai, prob_xiu
 
 def optimize_hyperparameters(history_data, dice_data, labels):
@@ -271,7 +274,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history_data.extend(user_history)
         save_data()  # Lưu dữ liệu sau khi cập nhật
 
-        prediction, prob_tai, prob_xiu = weighted_prediction(list(history_data), dice_data)
+        prediction, prob_tai, prob_xiu = combine_predictions(list(history_data), dice_data)
         pattern = detect_pattern(list(history_data))
 
         buttons = InlineKeyboardMarkup([
@@ -296,11 +299,9 @@ async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         try:
-            # Chuyển đổi dữ liệu đầu vào thành danh sách số nguyên
             dice_values = list(map(int, context.args))
-            # Cập nhật phạm vi giá trị hợp lệ (1-15)
-            if not all(1 <= value <= 18 for value in dice_values):  # Cập nhật phạm vi ở đây
-                await update.message.reply_text("Dữ liệu xúc xắc chỉ được chứa các số từ 1 đến 18.")
+            if not all(1 <= value <= 15 for value in dice_values):
+                await update.message.reply_text("Dữ liệu xúc xắc chỉ được chứa các số từ 1 đến 15.")
                 return
         except ValueError:
             await update.message.reply_text("Dữ liệu xúc xắc phải là các số nguyên cách nhau bởi dấu cách.")
@@ -310,7 +311,7 @@ async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         dice_data.extend(dice_values)
         save_data()  # Lưu dữ liệu sau khi cập nhật
 
-        prediction, prob_tai, prob_xiu = weighted_prediction(list(history_data), dice_data)
+        prediction, prob_tai, prob_xiu = combine_predictions(list(history_data), dice_data)
         pattern = detect_pattern(list(history_data))
 
         buttons = InlineKeyboardMarkup([
