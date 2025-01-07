@@ -1,6 +1,5 @@
 import os
 os.system("pip install scikit-learn")
-import os
 import random
 from collections import Counter, deque
 from telegram import Update
