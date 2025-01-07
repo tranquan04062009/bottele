@@ -12,8 +12,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.layers import LSTM, Dense, Dropout
+from keras.callbacks import ModelCheckpoint
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 import numpy as np
@@ -48,7 +48,12 @@ def build_lstm_model(input_shape):
     model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
     return model
 
-lstm_checkpoint = ModelCheckpoint("lstm_best_model.h5", monitor="loss", save_best_only=True, verbose=1)
+lstm_checkpoint = ModelCheckpoint(
+    "lstm_best_model.keras",  # Thay đổi đuôi thành .keras
+    monitor="loss",
+    save_best_only=True,
+    verbose=1
+)
 
 # ==============================
 # Các hàm hỗ trợ
