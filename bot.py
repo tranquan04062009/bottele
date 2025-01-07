@@ -3,6 +3,8 @@ os.system("pip install scikit-learn")
 os.system("pip install tensorflow")
 os.system("pip install tensorflow-cpu")
 import random
+import threading
+import time
 from collections import Counter, deque
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
@@ -152,8 +154,25 @@ def predict_combined(dice_values):
 # Các lệnh cho bot Telegram
 # ==============================
 
+# Hàm huấn luyện mô hình dưới nền
+def background_training():
+    while True:
+        try:
+            # Tiến hành huấn luyện mô hình nếu có đủ dữ liệu
+            if len(history_data) > 10:
+                train_models()  # Huấn luyện mô hình với dữ liệu hiện tại
+            time.sleep(60)  # Chạy lại mỗi 60 giây để huấn luyện dưới nền
+        except Exception as e:
+            print(f"Lỗi khi huấn luyện dưới nền: {e}")
+            time.sleep(60)  # Đợi trước khi thử lại
+            
+def start_background_training():
+    training_thread = threading.Thread(target=background_training, daemon=True)
+    training_thread.start()
+
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    start_background_training()  # Khởi động huấn luyện nền
     await update.message.reply_text(
         "Chào mừng bạn đến với bot dự đoán Tài/Xỉu!\n"
         "Sử dụng các lệnh sau để bắt đầu:\n"
