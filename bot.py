@@ -215,6 +215,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "wrong":
         await query.edit_message_text("Cảm ơn! Kết quả sẽ không được lưu lại.")
 
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Hướng dẫn sử dụng bot:\n"
+        "1. **/tx <chuỗi lịch sử>**: Dự đoán kết quả dựa trên lịch sử Tài/Xỉu.\n"
+        "   Ví dụ: /tx t x t x\n"
+        "2. **/txs <dãy số súc sắc>**: Dự đoán kết hợp lịch sử và dãy số súc sắc.\n"
+        "3. **/add <lịch sử hoặc súc sắc>**: Thêm dữ liệu vào lịch sử.\n"
+        "4. **/history**: Xem lịch sử Tài/Xỉu và súc sắc.\n"
+    )
+
 # ==============================
 # Chạy bot
 # ==============================
