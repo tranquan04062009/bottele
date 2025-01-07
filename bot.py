@@ -383,9 +383,9 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "4. **/history**: Xem lịch sử Tài/Xỉu và súc sắc.\n"
     )
 
-# ==============================
+# =============================
 # Chạy bot
-# ==============================
+# =============================
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
