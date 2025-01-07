@@ -30,7 +30,7 @@ dice_data = deque(maxlen=100)     # Lưu tối đa 100 kết quả súc sắc
 nb_model = GaussianNB()
 lr_model = LogisticRegression()
 rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
-scaler = MinMaxScaler(
+scaler = MinMaxScaler(feature_range=(0, 1))
 
 # Mô hình LSTM (Long Short Term Memory)
 def build_lstm_model(input_shape):
