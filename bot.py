@@ -24,13 +24,35 @@ if not TOKEN:
     raise ValueError("Vui lòng đặt biến môi trường TELEGRAM_TOKEN chứa token bot!")
 
 # Bộ nhớ lịch sử
-history_data = deque(maxlen=100)  # Lưu tối đa 100 kết quả Tài/Xỉu
-dice_data = deque(maxlen=100)     # Lưu tối đa 100 kết quả súc sắc
+history_data = deque(maxlen=400)  # Lưu tối đa 100 kết quả Tài/Xỉu
+dice_data = deque(maxlen=400)     # Lưu tối đa 100 kết quả súc sắc
 
 # ==============================
 # Các mô hình học máy
 # ==============================
-
+def save_data():
+    np.save("history_data.npy", np.array(history_data))
+    np.save("dice_data.npy", np.array(dice_data))
+    
+def load_data():
+    global history_data, dice_data
+    try:
+        if os.path.exists("history_data.npy"):
+            history_data.extend(np.load("history_data.npy").tolist())
+        if os.path.exists("dice_data.npy"):
+            dice_data.extend(np.load("dice_data.npy").tolist())
+    except Exception as e:
+        print(f"Lỗi khi tải dữ liệu: {e}")
+        
+def prepare_lstm_data(data, sequence_length=10):
+    X, y = [], []
+    for i in range(len(data) - sequence_length):
+        X.append(data[i:i + sequence_length])
+        y.append(data[i + sequence_length])  # Giá trị tiếp theo là nhãn
+    X = np.array(X)
+    y = np.array(y)
+    return X, y
+    
 #khởi tạo mô hình
 nb_model = GaussianNB()
 lr_model = LogisticRegression()
@@ -206,9 +228,13 @@ def start_background_training():
 
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    load_data()
+    await update.message.reply_text(
+    "✅ Đã tải dữ liệu thành công.\n"
+    )
     start_background_training()  # Khởi động huấn luyện nền
     await update.message.reply_text(
-        "Chào mừng bạn đến với bot dự đoán Tài/Xỉu!\n"
+        "🤖 Chào mừng bạn đến với bot Tài/Xỉu!\n"
         "Sử dụng các lệnh sau để bắt đầu:\n"
         "- /tx <chuỗi lịch sử>: Dự đoán dựa trên lịch sử.\n"
         "- /txs <dãy số>: Dự đoán kết hợp từ lịch sử và súc sắc.\n"
@@ -220,41 +246,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Lệnh /tx: Dự đoán dựa trên lịch sử
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Nhận chuỗi lịch sử từ người dùng
-        user_history = ''.join(context.args).strip()
-        if not user_history:
-            await update.message.reply_text("Vui lòng nhập chuỗi lịch sử (t: Tài, x: Xỉu)!")
+        if len(context.args) != 1 or not context.args[0].strip():
+            await update.message.reply_text("Vui lòng nhập đúng định dạng: /tx xtxtxtxxxt.")
             return
 
-        # Xác thực chuỗi lịch sử
-        history = list(user_history)
-        if not all(item in ["t", "x"] for item in history):
+        user_history = context.args[0].strip()
+        if not all(item in ["t", "x"] for item in user_history):
             await update.message.reply_text("Dữ liệu lịch sử chỉ được chứa 't' (Tài) hoặc 'x' (Xỉu).")
             return
 
-        # Nhận dãy số xúc xắc từ người dùng
-        dice_values = context.args[1:]  # Lấy các tham số sau chuỗi lịch sử
-        dice_values = list(map(int, dice_values)) if dice_values else []
+        # Cập nhật dữ liệu lịch sử
+        history_data.extend(user_history)
+        save_data()  # Lưu dữ liệu sau khi cập nhật
 
-        # Xác thực dữ liệu xúc xắc
-        if not all(1 <= value <= 6 for value in dice_values):
-            await update.message.reply_text("Dữ liệu súc sắc phải là các số từ 1 đến 6.")
-            return
-
-        # Cập nhật dữ liệu toàn cục
-        history_data.extend(history)
-        dice_data.extend(dice_values)
-
-        # Tính toán dự đoán dựa trên dữ liệu
         prediction, prob_tai, prob_xiu = weighted_prediction(list(history_data), dice_data)
         pattern = detect_pattern(list(history_data))
 
-        # Gửi dự đoán kèm nút xác nhận
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Đúng", callback_data=f"correct|{prediction}"),
              InlineKeyboardButton("❌ Sai", callback_data=f"wrong|{prediction}")]
         ])
-
         await update.message.reply_text(
             f"Dự đoán: {'Tài' if prediction == 't' else 'Xỉu'}\n"
             f"Tỷ lệ phần trăm Tài: {prob_tai:.2f}%\n"
@@ -265,33 +276,33 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
 
-# Lệnh /txs: Lệnh riêng xử lý súc sắc (nếu cần)
+# Lệnh /txs
 async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Nhận dãy số xúc xắc
-        user_input = ''.join(context.args).strip()
-        if not user_input:
-            await update.message.reply_text("Vui lòng nhập dãy số súc sắc!")
+        if len(context.args) == 0:
+            await update.message.reply_text("Vui lòng nhập đúng định dạng: /txs 15 5 8 9 10.")
             return
 
-        dice_values = list(map(int, user_input.split()))
-        if not all(1 <= value <= 6 for value in dice_values):
-            await update.message.reply_text("Dữ liệu súc sắc phải là các số từ 1 đến 6.")
+        try:
+            dice_values = list(map(int, context.args))
+            if not all(1 <= value <= 6 for value in dice_values):
+                await update.message.reply_text("Dữ liệu xúc xắc chỉ được chứa các số từ 1 đến 6.")
+                return
+        except ValueError:
+            await update.message.reply_text("Dữ liệu xúc xắc phải là các số nguyên cách nhau bởi dấu cách.")
             return
 
-        # Cập nhật dữ liệu toàn cục
+        # Cập nhật dữ liệu xúc xắc
         dice_data.extend(dice_values)
+        save_data()  # Lưu dữ liệu sau khi cập nhật
 
-        # Dự đoán dựa trên dữ liệu hiện có
         prediction, prob_tai, prob_xiu = weighted_prediction(list(history_data), dice_data)
         pattern = detect_pattern(list(history_data))
 
-        # Gửi dự đoán kèm nút xác nhận
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Đúng", callback_data=f"correct|{prediction}"),
              InlineKeyboardButton("❌ Sai", callback_data=f"wrong|{prediction}")]
         ])
-
         await update.message.reply_text(
             f"Dự đoán: {'Tài' if prediction == 't' else 'Xỉu'}\n"
             f"Tỷ lệ phần trăm Tài: {prob_tai:.2f}%\n"
