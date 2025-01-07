@@ -12,7 +12,7 @@ if not TOKEN:
     raise ValueError("Vui lòng đặt biến môi trường TELEGRAM_TOKEN chứa token bot!")
 
 # Bộ nhớ lịch sử thực tế (cập nhật mỗi khi có trận đấu mới)
-history_data = deque(maxlen=100)  # Lưu trữ tối đa 100 kết quả
+history_data = deque(maxlen=500)  # Lưu trữ tối đa 100 kết quả
 
 def analyze_real_data(history):
     """
