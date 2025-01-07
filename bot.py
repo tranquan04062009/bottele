@@ -114,6 +114,18 @@ def weighted_prediction(history):
     prediction = "t" if prob_tai > prob_xiu else "x"
     return prediction, prob_tai, prob_xiu
 
+def combine_predictions(history, dice_values):
+    """
+    Kết hợp dự đoán từ lịch sử và tổng súc sắc.
+    """
+    prediction, prob_tai, prob_xiu = weighted_prediction(history)
+    total_points = sum(dice_values) if dice_values else 0
+    dice_prediction = "t" if total_points % 2 == 0 else "x"
+
+    # Ưu tiên dự đoán từ lịch sử nếu có xu hướng rõ ràng
+    final_prediction = prediction if prediction == dice_prediction else dice_prediction
+    return final_prediction, prob_tai, prob_xiu
+
 def optimize_hyperparameters(history_data, dice_data, labels):
     # Kết hợp dữ liệu lịch sử và xúc xắc thành một tập hợp
     X_combined = np.array([history_data + dice_data])
@@ -284,9 +296,11 @@ async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         try:
+            # Chuyển đổi dữ liệu đầu vào thành danh sách số nguyên
             dice_values = list(map(int, context.args))
-            if not all(1 <= value <= 6 for value in dice_values):
-                await update.message.reply_text("Dữ liệu xúc xắc chỉ được chứa các số từ 1 đến 6.")
+            # Cập nhật phạm vi giá trị hợp lệ (1-15)
+            if not all(1 <= value <= 18 for value in dice_values):  # Cập nhật phạm vi ở đây
+                await update.message.reply_text("Dữ liệu xúc xắc chỉ được chứa các số từ 1 đến 18.")
                 return
         except ValueError:
             await update.message.reply_text("Dữ liệu xúc xắc phải là các số nguyên cách nhau bởi dấu cách.")
