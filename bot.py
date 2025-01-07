@@ -60,9 +60,22 @@ rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
 scaler = MinMaxScaler(feature_range=(0, 1))
 
 # Khởi tạo bộ mã hóa One-Hot cho lịch sử
-encoder = OneHotEncoder(sparse=False)
+# Kiểm tra dữ liệu đầu vào
+if len(history_data) < sequence_length or len(dice_data) < sequence_length:
+    print("Không đủ dữ liệu để huấn luyện hoặc dự đoán.")
+    exit()
+
+if len(history_data) != len(dice_data):
+    print("Dữ liệu lịch sử và xúc xắc không khớp.")
+    exit()
+
+valid_data = all(item in ["t", "x"] for item in history_data)
+if not valid_data:
+    print("Dữ liệu không hợp lệ, chỉ chấp nhận 't' và 'x'.")
+    exit()
 
 # Chuyển đổi "t" và "x" thành vector one-hot
+encoder = OneHotEncoder(sparse=False)
 history_data_onehot = encoder.fit_transform(np.array(history_data).reshape(-1, 1))
 
 # Kết hợp lịch sử và dữ liệu xúc xắc
@@ -75,8 +88,6 @@ scaled_data = scaler.fit_transform(data)
 # Tạo các chuỗi dữ liệu huấn luyện cho LSTM
 X = []
 y = []
-sequence_length = 5  # Độ dài chuỗi cho LSTM
-
 for i in range(sequence_length, len(scaled_data)):
     X.append(scaled_data[i-sequence_length:i])
     y.append(0 if history_data[i] == "t" else 1)
@@ -84,20 +95,14 @@ for i in range(sequence_length, len(scaled_data)):
 X = np.array(X)
 y = np.array(y)
 
+# Kiểm tra dữ liệu huấn luyện
+if len(X) == 0 or len(y) == 0:
+    print("Không đủ dữ liệu để huấn luyện.")
+    exit()
+
 # Chia dữ liệu thành tập huấn luyện và kiểm tra
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Xây dựng mô hình LSTM
-def build_lstm_model(input_shape):
-    model = Sequential()
-    model.add(LSTM(50, input_shape=input_shape, return_sequences=True))
-    model.add(Dropout(0.2))
-    model.add(LSTM(50))
-    model.add(Dropout(0.2))
-    model.add(Dense(1, activation="sigmoid"))
-    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
-    return model
-    
 # Xây dựng mô hình LSTM
 model = build_lstm_model((X_train.shape[1], X_train.shape[2]))
 
