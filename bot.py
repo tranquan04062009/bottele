@@ -7,11 +7,11 @@ import threading
 import time
 from collections import Counter, deque
 from sklearn.naive_bayes import GaussianNB
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from keras.callbacks import ModelCheckpoint
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -59,7 +59,33 @@ lr_model = LogisticRegression()
 rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
 scaler = MinMaxScaler(feature_range=(0, 1))
 
-# Mô hình LSTM (Long Short Term Memory)
+history_data_num = [0 if item == "t" else 1 for item in history_data]
+
+# Chuẩn hóa dữ liệu
+scaler = MinMaxScaler(feature_range=(0, 1))
+
+# Kết hợp lịch sử và dữ liệu xúc xắc
+data = np.array([history_data, dice_data]).T  # Ghép dữ liệu lịch sử và dữ liệu xúc xắc
+
+# Chuẩn hóa dữ liệu
+scaled_data = scaler.fit_transform(data)
+
+# Tạo các chuỗi dữ liệu huấn luyện cho LSTM
+X = []
+y = []
+sequence_length = 5  # Độ dài chuỗi cho LSTM
+
+for i in range(sequence_length, len(scaled_data)):
+    X.append(scaled_data[i-sequence_length:i])
+    y.append(history_data_num[i])
+
+X = np.array(X)
+y = np.array(y)
+
+# Chia dữ liệu thành tập huấn luyện và kiểm tra
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Xây dựng mô hình LSTM
 def build_lstm_model(input_shape):
     model = Sequential()
     model.add(LSTM(50, input_shape=input_shape, return_sequences=True))
@@ -69,6 +95,9 @@ def build_lstm_model(input_shape):
     model.add(Dense(1, activation="sigmoid"))
     model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
     return model
+    
+# Xây dựng mô hình LSTM
+model = build_lstm_model((X_train.shape[1], X_train.shape[2]))
 
 lstm_checkpoint = ModelCheckpoint(
     "lstm_best_model.keras",  # Thay đổi đuôi thành .keras
@@ -77,6 +106,28 @@ lstm_checkpoint = ModelCheckpoint(
     verbose=1
 )
 
+# Huấn luyện mô hình
+model.fit(
+    X_train, y_train,
+    epochs=50,
+    batch_size=32,
+    validation_data=(X_test, y_test),
+    callbacks=[lstm_checkpoint]
+)
+
+# Tải mô hình đã huấn luyện
+model = load_model("lstm_best_model.keras")
+
+# Dự đoán mới
+new_data = np.array([history_data_num, dice_data]).T
+scaled_new_data = scaler.transform(new_data)
+X_new = np.array([scaled_new_data[-sequence_length:]])
+
+# Dự đoán
+prediction = model.predict(X_new)
+print("Dự đoán:", "Tài" if prediction[0] < 0.5 else "Xỉu")
+
+# Sau khi huấn luyện xong, mô hình sẽ tự động lưu vào "lstm_best_model.keras"
 # ==============================
 # Các hàm hỗ trợ
 # ==============================
