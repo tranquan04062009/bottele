@@ -1,9 +1,12 @@
 import os
+os.system("pip install scikit-learn")
 import random
 import numpy as np
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from collections import Counter, deque
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import LabelEncoder
 
 # Lấy token từ biến môi trường
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -11,7 +14,33 @@ if not TOKEN:
     raise ValueError("Vui lòng đặt biến môi trường TELEGRAM_TOKEN chứa token bot!")
 
 # Bộ nhớ lịch sử thực tế (cập nhật mỗi khi có trận đấu mới)
-history_data = deque(maxlen=100)  # Lưu trữ tối đa 100 kết quả
+history_data = deque(maxlen=400)  # Lưu trữ tối đa 100 kết quả
+train_data = []  # Lịch sử để huấn luyện
+train_labels = []
+le = LabelEncoder()
+model = LogisticRegression()
+
+def train_model():
+    """
+    Huấn luyện mô hình Machine Learning dựa trên lịch sử thực tế.
+    """
+    if len(train_data) >= 10:  # Chỉ huấn luyện nếu có đủ dữ liệu
+        X = np.array(train_data)
+        y = le.fit_transform(train_labels)
+        model.fit(X, y)
+
+def ml_prediction(history):
+    """
+    Dự đoán bằng Machine Learning.
+    """
+    if len(train_data) < 10:
+        return weighted_prediction(history)  # Quay về dự đoán trọng số nếu thiếu dữ liệu
+
+    # Chuyển đổi lịch sử thành dạng vector (0: Tài, 1: Xỉu)
+    encoded_history = le.transform(history[-5:])  # Sử dụng 5 phần tử gần nhất
+    features = np.array([encoded_history])
+    prediction = model.predict(features)
+    return le.inverse_transform(prediction)[0]
 
 def analyze_real_data(history):
     """
@@ -47,18 +76,17 @@ def weighted_prediction(history):
     # Dự đoán dựa trên trọng số
     return "t" if random.random() < prob_tai else "x"
 
-# Tích hợp phân tích dữ liệu thực tế
-def real_data_prediction(history):
+def combined_prediction(history):
     """
-    Kết hợp phân tích thực tế và dự đoán trọng số.
+    Kết hợp các phương pháp dự đoán.
     """
-    # Phân tích quy luật thực tế
-    rule_prediction = analyze_real_data(history)
-    if rule_prediction:
-        return rule_prediction
+    # Phân tích chuỗi liên tiếp
+    streak_prediction = analyze_real_data(history)
+    if streak_prediction:
+        return streak_prediction
 
-    # Dự đoán theo trọng số
-    return weighted_prediction(history)
+    # Dự đoán bằng Machine Learning
+    return ml_prediction(history)
 
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -89,8 +117,14 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Cập nhật lịch sử thực tế vào bộ nhớ
         history_data.extend(history)
 
+        # Thêm vào dữ liệu huấn luyện
+        if len(history) >= 5:  # Chỉ thêm khi có đủ dữ liệu
+            train_data.append(le.fit_transform(history[-5:]))
+            train_labels.append(history[-1])
+            train_model()
+
         # Dự đoán kết quả
-        result = real_data_prediction(list(history_data))
+        result = combined_prediction(list(history_data))
         await update.message.reply_text(f"Kết quả dự đoán của tôi: {'Tài' if result == 't' else 'Xỉu'}")
 
     except Exception as e:
@@ -115,6 +149,13 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Cập nhật dữ liệu mới
         history_data.extend(new_data)
+
+        # Thêm vào dữ liệu huấn luyện
+        for i in range(len(new_data) - 5 + 1):  # Huấn luyện với từng tập dữ liệu
+            train_data.append(le.fit_transform(new_data[i:i + 5]))
+            train_labels.append(new_data[i + 4])
+            train_model()
+
         await update.message.reply_text(f"Dữ liệu thực tế đã được cập nhật: {new_data}")
 
     except Exception as e:
