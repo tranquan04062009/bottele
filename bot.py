@@ -2,8 +2,13 @@ import os
 os.system("pip install scikit-learn")
 import random
 from collections import Counter, deque
+from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LogisticRegression
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+import numpy as np
 
 # Token bot Telegram
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -15,15 +20,29 @@ history_data = deque(maxlen=100)  # Lưu tối đa 100 kết quả Tài/Xỉu
 dice_data = deque(maxlen=100)     # Lưu tối đa 100 kết quả súc sắc
 
 # ==============================
+# Các mô hình học máy
+# ==============================
+
+# Mô hình Naive Bayes
+nb_model = GaussianNB()
+
+# Mô hình Logistic Regression
+lr_model = LogisticRegression()
+
+# Mô hình LSTM (Long Short Term Memory)
+def build_lstm_model(input_shape):
+    model = Sequential()
+    model.add(LSTM(50, return_sequences=True, input_shape=input_shape))
+    model.add(LSTM(50))
+    model.add(Dense(1, activation='sigmoid'))  # 1 output: Tài (1) hoặc Xỉu (0)
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+    return model
+
+# ==============================
 # Các hàm hỗ trợ
 # ==============================
 
 def detect_pattern(history):
-    """
-    Phát hiện kiểu cầu từ lịch sử:
-    - Cầu 1-1: Xen kẽ Tài - Xỉu
-    - Cầu bệt: Lặp lại liên tục Tài hoặc Xỉu
-    """
     if len(history) < 4:
         return "Không đủ dữ liệu để phát hiện cầu."
     
@@ -38,30 +57,32 @@ def detect_pattern(history):
     return "Không phát hiện cầu rõ ràng."
 
 def weighted_prediction(history):
-    """
-    Dự đoán dựa trên trọng số Tài/Xỉu từ lịch sử và tính tỷ lệ phần trăm.
-    """
     if not history:
         return random.choice(["t", "x"]), 50.0, 50.0  # Nếu không có lịch sử, dự đoán ngẫu nhiên với tỷ lệ 50/50
 
     counter = Counter(history)
-    prob_tai = counter["t"] / len(history) * 100  # Tính tỷ lệ phần trăm Tài
-    prob_xiu = counter["x"] / len(history) * 100  # Tính tỷ lệ phần trăm Xỉu
+    prob_tai = counter["t"] / len(history) * 100
+    prob_xiu = counter["x"] / len(history) * 100
 
     prediction = "t" if prob_tai > prob_xiu else "x"
     return prediction, prob_tai, prob_xiu
 
-def combine_predictions(history, dice_values):
-    """
-    Kết hợp dự đoán từ lịch sử và tổng súc sắc.
-    """
-    prediction, prob_tai, prob_xiu = weighted_prediction(history)
-    total_points = sum(dice_values) if dice_values else 0
-    dice_prediction = "t" if total_points % 2 == 0 else "x"
+def train_models():
+    # Huấn luyện mô hình Naive Bayes
+    history_labels = [1 if result == "t" else 0 for result in history_data]  # Tài = 1, Xỉu = 0
+    nb_model.fit(np.array(history_labels).reshape(-1, 1), history_labels)
 
-    # Ưu tiên dự đoán từ lịch sử nếu có xu hướng rõ ràng
-    final_prediction = prediction if prediction == dice_prediction else dice_prediction
-    return final_prediction, prob_tai, prob_xiu
+    # Huấn luyện mô hình Logistic Regression
+    X_lr = np.array([[i] for i in range(len(history_data))])  # Dữ liệu huấn luyện cho Logistic Regression
+    lr_model.fit(X_lr, history_labels)
+
+    # Huấn luyện mô hình LSTM (nếu có đủ dữ liệu)
+    if len(history_data) > 10:
+        X_lstm = np.array([[i] for i in range(len(history_data))])
+        y_lstm = np.array([1 if result == "t" else 0 for result in history_data])
+        X_lstm = X_lstm.reshape((X_lstm.shape[0], X_lstm.shape[1], 1))
+        lstm_model = build_lstm_model((X_lstm.shape[1], 1))
+        lstm_model.fit(X_lstm, y_lstm, epochs=5, batch_size=1)
 
 # ==============================
 # Các lệnh cho bot Telegram
@@ -92,11 +113,10 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Dữ liệu chỉ được chứa 't' (Tài) hoặc 'x' (Xỉu).")
             return
 
-        history_data.extend(history)  # Cập nhật lịch sử
+        history_data.extend(history)
         prediction, prob_tai, prob_xiu = weighted_prediction(history)
         pattern = detect_pattern(list(history_data))
 
-        # Tạo nút xác nhận
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Đúng", callback_data=f"correct|{prediction}"), 
              InlineKeyboardButton("❌ Sai", callback_data=f"wrong|{prediction}")]
@@ -125,11 +145,10 @@ async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Dữ liệu súc sắc không hợp lệ.")
             return
 
-        dice_data.extend(dice_values)  # Cập nhật dữ liệu súc sắc
-        prediction, prob_tai, prob_xiu = combine_predictions(list(history_data), dice_values)
+        dice_data.extend(dice_values)
+        prediction, prob_tai, prob_xiu = weighted_prediction(list(history_data))
         pattern = detect_pattern(list(history_data))
 
-        # Tạo nút xác nhận
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Đúng", callback_data=f"correct|{prediction}"), 
              InlineKeyboardButton("❌ Sai", callback_data=f"wrong|{prediction}")]
@@ -139,55 +158,48 @@ async def txs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Dự đoán: {'Tài' if prediction == 't' else 'Xỉu'}\n"
             f"Tỷ lệ phần trăm Tài: {prob_tai:.2f}%\n"
             f"Tỷ lệ phần trăm Xỉu: {prob_xiu:.2f}%\n"
-            f"Phát hiện cầu: {pattern}\n"
-            f"Dữ liệu súc sắc: {', '.join(map(str, dice_values))}",
+            f"Phát hiện cầu: {pattern}",
             reply_markup=buttons
         )
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
 
-# Lệnh /add: Thêm dữ liệu mới
+# Lệnh /add: Thêm dữ liệu
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        user_input = ' '.join(context.args)
-        if not user_input:
-            await update.message.reply_text("Vui lòng nhập dữ liệu dạng: 't x t | 12 6 8'.")
+        if len(context.args) < 2:
+            await update.message.reply_text("Vui lòng cung cấp lịch sử và dãy súc sắc.")
             return
 
-        parts = user_input.split("|")
-        if len(parts) != 2:
-            await update.message.reply_text("Dữ liệu không hợp lệ! Nhập dạng 't x t | 12 6 8'.")
-            return
-
-        history = parts[0].strip().split()
-        dice_values = list(map(int, parts[1].strip().split()))
+        history = context.args[0]
+        dice_values = context.args[1]
 
         if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text("Lịch sử chỉ được chứa 't' hoặc 'x'.")
+            await update.message.reply_text("Lịch sử chỉ chứa 't' (Tài) và 'x' (Xỉu).")
             return
-        if not all(isinstance(i, int) for i in dice_values):
-            await update.message.reply_text("Dữ liệu súc sắc phải là số nguyên.")
+
+        if len(dice_values) != 3:
+            await update.message.reply_text("Súc sắc phải gồm 3 số.")
             return
 
         history_data.extend(history)
         dice_data.extend(dice_values)
-
-        await update.message.reply_text("Dữ liệu đã được thêm thành công!")
+        await update.message.reply_text(f"Dữ liệu đã được thêm thành công: {history} | {dice_values}.")
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
 
 # Lệnh /history: Xem lịch sử
 async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not history_data and not dice_data:
-        await update.message.reply_text("Chưa có dữ liệu lịch sử.")
-    else:
-        await update.message.reply_text(
-            f"Lịch sử gần nhất:\n"
-            f"Tài/Xỉu: {' '.join(history_data)}\n"
-            f"Súc sắc: {', '.join(map(str, dice_data))}"
-        )
+    history_str = ', '.join(history_data)
+    dice_str = ', '.join(map(str, dice_data))
+    await update.message.reply_text(
+        f"Lịch sử Tài/Xỉu: {history_str}\nLịch sử Súc sắc: {dice_str}"
+    )
 
-# Lệnh xử lý callback từ button
+# ==============================
+# Xử lý callback cho nút Đúng/Sai
+# ==============================
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -211,6 +223,7 @@ if __name__ == "__main__":
 
     # Thêm các lệnh vào bot
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help))  # Thêm lệnh /help
     app.add_handler(CommandHandler("tx", tx))
     app.add_handler(CommandHandler("txs", txs))
     app.add_handler(CommandHandler("add", add))
