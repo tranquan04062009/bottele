@@ -208,7 +208,7 @@ async def correct_incorrect_handler(update: Update, context: ContextTypes.DEFAUL
 
 # Main
 def main():
-    application = ApplicationBuilder().token("TELEGRAM_TOKEN").build()
+    app = ApplicationBuilder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add", add))
