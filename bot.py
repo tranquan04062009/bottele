@@ -116,14 +116,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Lệnh /tx (dự đoán Tài/Xỉu)
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.message.reply_text(
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(
         "Nhập lịch sử kết quả (t: Tài, x: Xỉu). Chọn Tài hoặc Xỉu nhé!",
         reply_markup=tx_menu()
     )
 
 # Lệnh /add (cập nhật dữ liệu thực tế)
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.message.reply_text(
+    query = update.callback_query  # Lấy thông tin callback_query
+    await query.message.reply_text(
         "Nhập kết quả thực tế (t: Tài, x: Xỉu). Sau khi xong, nhấn 'Xong'!",
         reply_markup=tx_menu()
     )
@@ -148,8 +151,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Xử lý các sự kiện từ menu
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # Trả lời nhanh để ngăn lỗi timeout
 
+    # Kiểm tra dữ liệu callback và gọi hàm tương ứng
     if query.data == "tx":
         await tx(update, context)
     elif query.data == "add":
@@ -215,6 +219,7 @@ def main():
     application.add_handler(CommandHandler("history", history))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CallbackQueryHandler(menu_handler))
+    application.add_handler(CallbackQueryHandler(menu_handler, pattern="^(tx|add|history|help)$"))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^(t|x|finish_tx)$"))
     application.add_handler(CallbackQueryHandler(correct_incorrect_handler, pattern="^(correct|incorrect)$"))
 
