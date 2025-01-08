@@ -97,6 +97,15 @@ def main_menu():
     ]
     return InlineKeyboardMarkup(keyboard)
 
+# Tạo menu Tài/Xỉu
+def tx_menu():
+    keyboard = [
+        [InlineKeyboardButton("Tài", callback_data="t")],
+        [InlineKeyboardButton("Xỉu", callback_data="x")],
+        [InlineKeyboardButton("Xong", callback_data="finish_tx")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -105,98 +114,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
-# Lệnh /tx
+# Lệnh /tx (dự đoán Tài/Xỉu)
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        # Kiểm tra xem có đối số hay không
-        user_input = ' '.join(context.args) if context.args else ''
+    await update.callback_query.message.reply_text(
+        "Nhập lịch sử kết quả (t: Tài, x: Xỉu). Chọn Tài hoặc Xỉu nhé!",
+        reply_markup=tx_menu()
+    )
 
-        if not user_input:
-            await update.callback_query.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu) đi bạn ơi! 😅")
-            return
-
-        # Chuyển đổi lịch sử thành danh sách
-        history = user_input.split()
-
-        # Kiểm tra định dạng hợp lệ (chỉ chấp nhận "t" hoặc "x")
-        if not all(item in ["t", "x"] for item in history):
-            await update.callback_query.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu), không có lúa nhé! 😜")
-            return
-
-        # Cập nhật lịch sử thực tế vào bộ nhớ
-        history_data.extend(history)
-
-        # Thêm vào dữ liệu huấn luyện
-        if len(history) >= 5:  # Chỉ thêm khi có đủ dữ liệu
-            train_data.append(le.fit_transform(history[-5:]))
-            train_labels.append(history[-1])
-            train_model()
-
-        # Dự đoán kết quả
-        result = combined_prediction(list(history_data))
-        # Chuyển đổi kết quả dự đoán thành biểu tượng
-        if result == "t":
-            result_text = "Tài ⚫️\nChưa tài đâu! 💸"
-        else:
-            result_text = "Xỉu ⚪\nChắc chắn rồi, lần này không thể sai được! 💀"
-
-        # Hiển thị nút "Đúng" và "Sai"
-        buttons = [
-            [
-                InlineKeyboardButton("Đúng", callback_data="correct"),
-                InlineKeyboardButton("Sai", callback_data="incorrect"),
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(buttons)
-        await update.callback_query.message.reply_text(result_text, reply_markup=reply_markup)
-
-    except Exception as e:
-        await update.callback_query.message.reply_text(f"Đã xảy ra lỗi: {e}")
-        
 # Lệnh /add (cập nhật dữ liệu thực tế)
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user_input = ' '.join(context.args)
-
-        if not user_input:
-            await update.message.reply_text("Vui lòng nhập kết quả thực tế (t: Tài, x: Xỉu)!")
-            return
-
-        # Chuyển đổi lịch sử thành danh sách
-        new_data = user_input.split()
-
-        # Kiểm tra định dạng hợp lệ
-        if not all(item in ["t", "x"] for item in new_data):
-            await update.message.reply_text("Kết quả chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
-            return
-
-        # Cập nhật dữ liệu mới
-        history_data.extend(new_data)
-
-        # Thêm vào dữ liệu huấn luyện
-        for i in range(len(new_data) - 5 + 1):  # Huấn luyện với từng tập dữ liệu
-            train_data.append(le.fit_transform(new_data[i:i + 5]))
-            train_labels.append(new_data[i + 4])
-            train_model()
-
-        await update.message.reply_text(f"Dữ liệu thực tế đã được cập nhật: {new_data}")
-
-    except Exception as e:
-        await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
+    await update.callback_query.message.reply_text(
+        "Nhập kết quả thực tế (t: Tài, x: Xỉu). Sau khi xong, nhấn 'Xong'!",
+        reply_markup=tx_menu()
+    )
 
 # Lệnh /history (xem lịch sử)
 async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not history_data:
-        await update.message.reply_text("Hiện tại chưa có dữ liệu lịch sử.")
+        await update.callback_query.message.reply_text("Hiện tại chưa có dữ liệu lịch sử.")
     else:
-        await update.message.reply_text(f"Lịch sử gần nhất: {' '.join(history_data)}")
+        await update.callback_query.message.reply_text(f"Lịch sử gần nhất: {' '.join(history_data)}")
 
 # Lệnh /help (hướng dẫn)
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    await update.callback_query.message.reply_text(
         "Hướng dẫn sử dụng bot:\n"
-        "/tx [dãy lịch sử]: Dự đoán kết quả Tài/Xỉu.\n"
-        "/add [dữ liệu thực tế]: Cập nhật dữ liệu thực tế.\n"
+        "/tx: Dự đoán kết quả Tài/Xỉu.\n"
+        "/add: Cập nhật dữ liệu thực tế.\n"
         "/history: Xem lịch sử gần nhất.\n"
         "/help: Hướng dẫn sử dụng bot."
     )
@@ -215,15 +159,46 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "help":
         await help_command(update, context)
 
-# Xử lý kết quả dự đoán đúng/sai
+# Xử lý kết quả dự đoán Tài/Xỉu (Đúng/Sai)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "t":
+        history_data.append("t")
+        result_text = f"Bạn đã nhập {len(history_data)} kết quả: {' '.join(history_data)}"
+    elif query.data == "x":
+        history_data.append("x")
+        result_text = f"Bạn đã nhập {len(history_data)} kết quả: {' '.join(history_data)}"
+    elif query.data == "finish_tx":
+        result = combined_prediction(history_data)
+        result_text = f"Bot dự đoán kết quả: {result}"
+        # Hiển thị nút "Đúng" và "Sai"
+        buttons = [
+            [
+                InlineKeyboardButton("Đúng", callback_data="correct"),
+                InlineKeyboardButton("Sai", callback_data="incorrect"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(buttons)
+        await query.message.reply_text(result_text, reply_markup=reply_markup)
+        return
+
+    await query.message.reply_text(result_text, reply_markup=tx_menu())
+
+# Xử lý kết quả đúng/sai
+async def correct_incorrect_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     if query.data == "correct":
         await query.message.reply_text("Chúc mừng! 🎉 Kết quả chính xác, thêm vào dữ liệu huấn luyện.")
+        # Cập nhật mô hình (thêm vào dữ liệu huấn luyện)
+        train_data.append([history_data[-5:]])
+        train_labels.append("t" if query.data == "t" else "x")
+        train_model()
     else:
-        await query.message.reply_text("Hên xui thôi 😅 Không sao, chúng ta sẽ tiếp tục học hỏi!")
+        await query.message.reply_text("Không sao, lần sau sẽ chính xác hơn! 😅")
 
     # Quay lại menu chính
     await query.message.reply_text(
@@ -231,14 +206,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
+# Main
 def main():
-    application = ApplicationBuilder().token(TOKEN).build()
+    application = ApplicationBuilder().token("YOUR_TOKEN").build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add", add))
     application.add_handler(CommandHandler("history", history))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CallbackQueryHandler(menu_handler))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern="^(t|x|finish_tx)$"))
+    application.add_handler(CallbackQueryHandler(correct_incorrect_handler, pattern="^(correct|incorrect)$"))
 
     application.run_polling()
 
