@@ -2,8 +2,8 @@ import os
 os.system("pip install scikit-learn")
 import random
 import numpy as np
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 from collections import Counter, deque
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import LabelEncoder
