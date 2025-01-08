@@ -2,8 +2,8 @@ import os
 os.system("pip install scikit-learn")
 import random
 import numpy as np
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from collections import Counter, deque
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import LabelEncoder
@@ -14,14 +14,11 @@ if not TOKEN:
     raise ValueError("Vui lòng đặt biến môi trường TELEGRAM_TOKEN chứa token bot!")
 
 # Bộ nhớ lịch sử thực tế (cập nhật mỗi khi có trận đấu mới)
-history_data = deque(maxlen=400)  # Lưu trữ tối đa 400 kết quả
+history_data = deque(maxlen=400)  # Lưu trữ tối đa 100 kết quả
 train_data = []  # Lịch sử để huấn luyện
 train_labels = []
 le = LabelEncoder()
 model = LogisticRegression()
-
-# Biến toàn cục cho kết quả dự đoán gần nhất
-last_prediction = None
 
 def train_model():
     """
@@ -101,11 +98,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Lệnh /tx
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global last_prediction
-
     try:
         # Lấy dãy số từ người dùng
-        user_input = ''.join(context.args)
+        user_input = ' '.join(context.args)
 
         if not user_input:
             await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu)!")
@@ -115,7 +110,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = user_input.split()
 
         # Kiểm tra định dạng hợp lệ (chỉ chấp nhận "t" hoặc "x")
-        if not all(item in ["t", "x"] for item in user_input):
+        if not all(item in ["t", "x"] for item in history):
             await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
             return
 
@@ -130,49 +125,15 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Dự đoán kết quả
         result = combined_prediction(list(history_data))
-        last_prediction = result  # Lưu kết quả dự đoán gần nhất
-
-        # Gửi kết quả dự đoán kèm nút xác nhận
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Đúng", callback_data="correct"),
-                InlineKeyboardButton("❌ Sai", callback_data="incorrect"),
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"Kết quả dự đoán của tôi: {'Tài' if result == 't' else 'Xỉu'}",
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text(f"Kết quả dự đoán của tôi: {'Tài' if result == 't' else 'Xỉu'}")
 
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
 
-# Xử lý phản hồi từ nút xác nhận
-async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global last_prediction
-
-    query = update.callback_query
-    await query.answer()
-
-    if last_prediction is None:
-        await query.edit_message_text("Không có dự đoán nào để xác nhận.")
-        return
-
-    if query.data == "correct":
-        await query.edit_message_text("Cảm ơn bạn! Tôi đã ghi nhận dự đoán đúng.")
-    elif query.data == "incorrect":
-        # Lưu kết quả sai vào dữ liệu huấn luyện
-        correct_result = "t" if last_prediction == "x" else "x"
-        train_data.append(le.fit_transform(list(history_data)[-5:]))
-        train_labels.append(correct_result)
-        train_model()
-        await query.edit_message_text("Tôi đã ghi nhận và sẽ cải thiện mô hình. Cảm ơn bạn!")
-
 # Lệnh /add (cập nhật dữ liệu thực tế)
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        user_input = ''.join(context.args)
+        user_input = ' '.join(context.args)
 
         if not user_input:
             await update.message.reply_text("Vui lòng nhập kết quả thực tế (t: Tài, x: Xỉu)!")
@@ -182,7 +143,7 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_data = user_input.split()
 
         # Kiểm tra định dạng hợp lệ
-        if not all(item in ["t", "x"] for item in user_input):
+        if not all(item in ["t", "x"] for item in new_data):
             await update.message.reply_text("Kết quả chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
             return
 
@@ -228,7 +189,6 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("add", add))
     app.add_handler(CommandHandler("history", history))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CallbackQueryHandler(handle_feedback))
 
     print("Bot đang chạy...")
     app.run_polling()
