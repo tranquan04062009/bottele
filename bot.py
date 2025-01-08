@@ -1,5 +1,4 @@
 import os
-os.system("pip install scikit-learn")
 import random
 import numpy as np
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -125,12 +124,18 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Dự đoán kết quả
         result = combined_prediction(list(history_data))
-        await update.message.reply_text(f"Kết quả dự đoán của tôi: {'Tài' if result == 't' else 'Xỉu'}")
- # Hiển thị nút đúng/sai
+
+        # Chuyển đổi kết quả dự đoán thành biểu tượng
+        if result == "t":
+            result_text = "Tài 🟠"
+        else:
+            result_text = "Xỉu ⚪"
+
+        # Hiển thị nút Tài và Xỉu
         buttons = [
             [
-                InlineKeyboardButton("Đúng", callback_data="correct"),
-                InlineKeyboardButton("Sai", callback_data="wrong"),
+                InlineKeyboardButton("Tài", callback_data="t"),
+                InlineKeyboardButton("Xỉu", callback_data="x"),
             ]
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
@@ -138,7 +143,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
-        
+
 # Lệnh /add (cập nhật dữ liệu thực tế)
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -181,16 +186,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "correct":
-        # Nếu người dùng chọn "Đúng", thêm kết quả vào dữ liệu huấn luyện
-        train_data.append(recent_history[-5:])  # Thêm 5 phần tử gần nhất
-        train_labels.append(query.message.text.split()[-1])  # Thêm nhãn kết quả
-        train_model()  # Huấn luyện lại mô hình
-
-        await query.edit_message_text(text="Cảm ơn bạn đã xác nhận! Mô hình sẽ được cập nhật.")
+    if query.data == "t":
+        # Nếu người dùng chọn "Tài"
+        result_text = "Tài 🟠"
     else:
-        await query.edit_message_text(text="Cảm ơn bạn đã xác nhận là sai! Mô hình không thay đổi."
-        
+        # Nếu người dùng chọn "Xỉu"
+        result_text = "Xỉu ⚪"
+
+    await query.edit_message_text(text=result_text)
+
 # Lệnh /help
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -212,6 +216,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("add", add))
     app.add_handler(CommandHandler("history", history))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
     print("Bot đang chạy...")
     app.run_polling()
