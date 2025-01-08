@@ -208,8 +208,8 @@ async def correct_incorrect_handler(update: Update, context: ContextTypes.DEFAUL
 
 # Main
 def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-
+    application = ApplicationBuilder().token(TOKEN).build()
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add", add))
     application.add_handler(CommandHandler("history", history))
