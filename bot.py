@@ -112,7 +112,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global last_prediction
     try:
-        user_input = ' '.join(context.args)
+        user_input = ''.join(context.args)
 
         if not user_input:
             await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu)!")
@@ -177,7 +177,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Lệnh /add (cập nhật dữ liệu thực tế)
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        user_input = ' '.join(context.args)
+        user_input = ''.join(context.args)
 
         if not user_input:
             await update.message.reply_text("Vui lòng nhập kết quả thực tế (t: Tài, x: Xỉu)!")
