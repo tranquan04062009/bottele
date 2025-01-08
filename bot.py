@@ -91,9 +91,9 @@ def combined_prediction(history):
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Chào mừng bạn đến với bot dự đoán Tài Xỉu thực tế! 😎\n"
-        "Sử dụng lệnh /tx để nhận dự đoán và thử xem khả năng dự đoán của tôi có đáng tin không. 🤔\n"
-        "Nếu kết quả sai, đừng ngại bóp méo mặt tôi bằng câu 'Sai lầm lớn rồi!' 😂\n"
+        "Chào mừng bạn đến với bot dự đoán Tài Xỉu! 😎\n"
+        "Sử dụng lệnh /tx để nhận dự đoán và thử xem khả năng dự đoán của t có đáng tin không. 🤔\n"
+        "Nếu kết quả sai, thì..... 'thôi !' 😂\n"
         "Nhập /help để biết thêm thông tin chi tiết."
     )
 
@@ -112,7 +112,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Kiểm tra định dạng hợp lệ (chỉ chấp nhận "t" hoặc "x")
         if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu), không có lúa nhé! 😜")
+            await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu), ngu quá có chịu đọc lệnh help k! 🙂")
             return
 
         # Cập nhật lịch sử thực tế vào bộ nhớ
@@ -129,7 +129,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Chuyển đổi kết quả dự đoán thành biểu tượng
         if result == "t":
-            result_text = "Tài 🟠\nBật đèn xanh cho bạn, vô luôn! 💸"
+            result_text = "Tài ⚫️\nBật đèn xanh cho bạn, vô luôn! 💸"
         else:
             result_text = "Xỉu ⚪\nChắc chắn rồi, lần này không thể sai được! 💀"
 
@@ -191,14 +191,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "correct":
         # Nếu người dùng chọn "Đúng", lưu dữ liệu để huấn luyện mô hình
-        result_text = "Chúc mừng! Bạn đã chọn đúng! 🎉\nĐã lưu dữ liệu vào hệ thống để tôi càng ngày càng thông minh hơn! 🤖"
+        result_text = "Chúc mừng! m đã chọn đúng! 🎉\nĐã lưu dữ liệu vào hệ thống để t càng ngày càng thông minh hơn! 🤖"
         history_data.append("t" if query.message.text.startswith("Tài") else "x")
         train_data.append(le.fit_transform(history_data[-5:]))
         train_labels.append("t" if query.message.text.startswith("Tài") else "x")
         train_model()
     else:
         # Nếu người dùng chọn "Sai", thông báo
-        result_text = "Hây, bạn đã chọn sai rồi! 😜\nĐể tôi cải thiện lần sau! 😎"
+        result_text = "ê, m chọn sai hả xin lỗi! 😅\nĐể t cải thiện lần sau! 💔"
 
     await query.edit_message_text(text=result_text)
 
