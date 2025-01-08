@@ -126,10 +126,19 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Dự đoán kết quả
         result = combined_prediction(list(history_data))
         await update.message.reply_text(f"Kết quả dự đoán của tôi: {'Tài' if result == 't' else 'Xỉu'}")
+ # Hiển thị nút đúng/sai
+        buttons = [
+            [
+                InlineKeyboardButton("Đúng", callback_data="correct"),
+                InlineKeyboardButton("Sai", callback_data="wrong"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(buttons)
+        await update.message.reply_text(result_text, reply_markup=reply_markup)
 
     except Exception as e:
         await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
-
+        
 # Lệnh /add (cập nhật dữ liệu thực tế)
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -168,6 +177,20 @@ async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"Lịch sử gần nhất: {' '.join(history_data)}")
 
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "correct":
+        # Nếu người dùng chọn "Đúng", thêm kết quả vào dữ liệu huấn luyện
+        train_data.append(recent_history[-5:])  # Thêm 5 phần tử gần nhất
+        train_labels.append(query.message.text.split()[-1])  # Thêm nhãn kết quả
+        train_model()  # Huấn luyện lại mô hình
+
+        await query.edit_message_text(text="Cảm ơn bạn đã xác nhận! Mô hình sẽ được cập nhật.")
+    else:
+        await query.edit_message_text(text="Cảm ơn bạn đã xác nhận là sai! Mô hình không thay đổi."
+        
 # Lệnh /help
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
