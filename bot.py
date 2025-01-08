@@ -100,8 +100,8 @@ def main_menu():
 # Tạo menu Tài/Xỉu
 def tx_menu():
     keyboard = [
-        [InlineKeyboardButton("Tài", callback_data="t")],
-        [InlineKeyboardButton("Xỉu", callback_data="x")],
+        [InlineKeyboardButton("Tài", callback_data="tx_t")],
+        [InlineKeyboardButton("Xỉu", callback_data="tx_x")],
         [InlineKeyboardButton("Xong", callback_data="finish_tx")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -151,13 +151,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Xử lý các sự kiện từ menu
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # Trả lời nhanh để ngăn lỗi timeout
+    await query.answer()  # Trả lời nhanh để tránh timeout
 
-    # Kiểm tra dữ liệu callback và gọi hàm tương ứng
+    # Kiểm tra `callback_data` và gọi hàm phù hợp
     if query.data == "tx":
         await tx(update, context)
     elif query.data == "add":
         await add(update, context)
+    elif query.data.startswith("tx_"):
+        await button_handler(update, context)
     elif query.data == "history":
         await history(update, context)
     elif query.data == "help":
@@ -166,17 +168,17 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Xử lý kết quả dự đoán Tài/Xỉu (Đúng/Sai)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # Đáp lại callback để tránh lỗi timeout
 
-    if query.data == "t":
-        history_data.append("t")
-        result_text = f"Bạn đã nhập {len(history_data)} kết quả: {' '.join(history_data)}"
-    elif query.data == "x":
-        history_data.append("x")
-        result_text = f"Bạn đã nhập {len(history_data)} kết quả: {' '.join(history_data)}"
+    if query.data == "tx_t":
+        history_data.append("Tài")
+        await query.message.reply_text(f"Kết quả: {' '.join(history_data)}", reply_markup=tx_menu())
+    elif query.data == "tx_x":
+        history_data.append("Xỉu")
+        await query.message.reply_text(f"Kết quả: {' '.join(history_data)}", reply_markup=tx_menu())
     elif query.data == "finish_tx":
         result = combined_prediction(history_data)
-        result_text = f"Bot dự đoán kết quả: {result}"
+        await query.message.reply_text(f"Bot dự đoán kết quả: {result}")
         # Hiển thị nút "Đúng" và "Sai"
         buttons = [
             [
@@ -215,12 +217,13 @@ def main():
     application = ApplicationBuilder().token(TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("tx", tx))
     application.add_handler(CommandHandler("add", add))
     application.add_handler(CommandHandler("history", history))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CallbackQueryHandler(menu_handler))
     application.add_handler(CallbackQueryHandler(menu_handler, pattern="^(tx|add|history|help)$"))
-    application.add_handler(CallbackQueryHandler(button_handler, pattern="^(t|x|finish_tx)$"))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern="^(tx_t|tx_x|finish_tx)$"))
     application.add_handler(CallbackQueryHandler(correct_incorrect_handler, pattern="^(correct|incorrect)$"))
 
     application.run_polling()
