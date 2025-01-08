@@ -90,8 +90,9 @@ def combined_prediction(history):
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Chào mừng bạn đến với bot dự đoán Tài Xỉu thực tế!\n"
-        "Sử dụng lệnh /tx để nhận dự đoán.\n"
+        "Chào mừng bạn đến với bot dự đoán Tài Xỉu thực tế! 😎\n"
+        "Sử dụng lệnh /tx để nhận dự đoán và thử xem khả năng dự đoán của tôi có đáng tin không. 🤔\n"
+        "Nếu kết quả sai, đừng ngại bóp méo mặt tôi bằng câu 'Sai lầm lớn rồi!' 😂\n"
         "Nhập /help để biết thêm thông tin chi tiết."
     )
 
@@ -102,7 +103,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_input = ' '.join(context.args)
 
         if not user_input:
-            await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu)!")
+            await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu) đi bạn ơi! 😅")
             return
 
         # Chuyển đổi lịch sử thành danh sách
@@ -110,7 +111,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Kiểm tra định dạng hợp lệ (chỉ chấp nhận "t" hoặc "x")
         if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
+            await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu), không có lúa nhé! 😜")
             return
 
         # Cập nhật lịch sử thực tế vào bộ nhớ
@@ -127,15 +128,15 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Chuyển đổi kết quả dự đoán thành biểu tượng
         if result == "t":
-            result_text = "Tài 🟠"
+            result_text = "Tài 🟠\nBật đèn xanh cho bạn, vô luôn! 💸"
         else:
-            result_text = "Xỉu ⚪"
+            result_text = "Xỉu ⚪\nChắc chắn rồi, lần này không thể sai được! 💀"
 
-        # Hiển thị nút Tài và Xỉu
+        # Hiển thị nút "Đúng" và "Sai"
         buttons = [
             [
-                InlineKeyboardButton("Tài", callback_data="t"),
-                InlineKeyboardButton("Xỉu", callback_data="x"),
+                InlineKeyboardButton("Đúng", callback_data="correct"),
+                InlineKeyboardButton("Sai", callback_data="incorrect"),
             ]
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
@@ -182,16 +183,21 @@ async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"Lịch sử gần nhất: {' '.join(history_data)}")
 
+# Xử lý nút "Đúng" và "Sai"
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "t":
-        # Nếu người dùng chọn "Tài"
-        result_text = "Tài 🟠"
+    if query.data == "correct":
+        # Nếu người dùng chọn "Đúng", lưu dữ liệu để huấn luyện mô hình
+        result_text = "Chúc mừng! Bạn đã chọn đúng! 🎉\nĐã lưu dữ liệu vào hệ thống để tôi càng ngày càng thông minh hơn! 🤖"
+        history_data.append("t" if query.message.text.startswith("Tài") else "x")
+        train_data.append(le.fit_transform(history_data[-5:]))
+        train_labels.append("t" if query.message.text.startswith("Tài") else "x")
+        train_model()
     else:
-        # Nếu người dùng chọn "Xỉu"
-        result_text = "Xỉu ⚪"
+        # Nếu người dùng chọn "Sai", thông báo
+        result_text = "Hây, bạn đã chọn sai rồi! 😜\nĐể tôi cải thiện lần sau! 😎"
 
     await query.edit_message_text(text=result_text)
 
@@ -200,23 +206,22 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Hướng dẫn sử dụng bot:\n"
         "/tx [dãy lịch sử]: Dự đoán kết quả Tài/Xỉu.\n"
-        "/add [kết quả]: Cập nhật kết quả thực tế.\n"
-        "/history: Xem lịch sử gần đây.\n"
-        "Ví dụ:\n"
-        "- /tx t t x t x\n"
-        "- /add t x x t t"
+        "/add [dữ liệu thực tế]: Cập nhật dữ liệu thực tế.\n"
+        "/history: Xem lịch sử gần nhất.\n"
+        "/help: Hướng dẫn sử dụng bot."
     )
 
-# Khởi chạy bot
+def main():
+    application = ApplicationBuilder().token(TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("tx", tx))
+    application.add_handler(CommandHandler("add", add))
+    application.add_handler(CommandHandler("history", history))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CallbackQueryHandler(button_handler))
+
+    application.run_polling()
+
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("tx", tx))
-    app.add_handler(CommandHandler("add", add))
-    app.add_handler(CommandHandler("history", history))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CallbackQueryHandler(button_handler))
-
-    print("Bot đang chạy...")
-    app.run_polling()
+    main()
