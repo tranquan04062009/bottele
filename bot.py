@@ -108,11 +108,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Lệnh /tx
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Lấy dãy số từ người dùng
-        user_input = ' '.join(context.args)
+        # Kiểm tra xem có đối số hay không
+        user_input = ' '.join(context.args) if context.args else ''
 
         if not user_input:
-            await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu) đi m ơi! 😅")
+            await update.callback_query.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu) đi bạn ơi! 😅")
             return
 
         # Chuyển đổi lịch sử thành danh sách
@@ -120,7 +120,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Kiểm tra định dạng hợp lệ (chỉ chấp nhận "t" hoặc "x")
         if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu), ngu quá chưa xem lệnh help à! 😜")
+            await update.callback_query.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu), không có lúa nhé! 😜")
             return
 
         # Cập nhật lịch sử thực tế vào bộ nhớ
@@ -134,7 +134,6 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Dự đoán kết quả
         result = combined_prediction(list(history_data))
-
         # Chuyển đổi kết quả dự đoán thành biểu tượng
         if result == "t":
             result_text = "Tài ⚫️\nChưa tài đâu! 💸"
@@ -149,11 +148,11 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await update.message.reply_text(result_text, reply_markup=reply_markup)
+        await update.callback_query.message.reply_text(result_text, reply_markup=reply_markup)
 
     except Exception as e:
-        await update.message.reply_text(f"Đã xảy ra lỗi: {e}")
-
+        await update.callback_query.message.reply_text(f"Đã xảy ra lỗi: {e}")
+        
 # Lệnh /add (cập nhật dữ liệu thực tế)
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -222,7 +221,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "correct":
-        await query.message.reply_text("Chúc mừng! 🎉 Kết quả chính xác, thêm vào dữ liệu huấn luyện để nâng cấp bản thân.")
+        await query.message.reply_text("Chúc mừng! 🎉 Kết quả chính xác, thêm vào dữ liệu huấn luyện.")
     else:
         await query.message.reply_text("Hên xui thôi 😅 Không sao, chúng ta sẽ tiếp tục học hỏi!")
 
