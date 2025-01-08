@@ -19,7 +19,6 @@ history_data = deque(maxlen=400)  # Lưu trữ tối đa 100 kết quả
 train_data = []  # Lịch sử để huấn luyện
 train_labels = []
 le = LabelEncoder()
-model = LogisticRegression()
 
 last_prediction = None
 
