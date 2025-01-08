@@ -87,14 +87,22 @@ def combined_prediction(history):
 
     # Dự đoán bằng Machine Learning
     return ml_prediction(history)
+    
+def main_menu():
+    keyboard = [
+        [InlineKeyboardButton("Kết quả Tài/Xỉu", callback_data="tx")],
+        [InlineKeyboardButton("Cập nhật dữ liệu thực tế", callback_data="add")],
+        [InlineKeyboardButton("Xem lịch sử", callback_data="history")],
+        [InlineKeyboardButton("Hướng dẫn", callback_data="help")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Chào mừng bạn đến với bot dự đoán Tài Xỉu! 😎\n"
-        "Sử dụng lệnh /tx để nhận dự đoán và thử xem khả năng dự đoán của t có đáng tin không. 🤔\n"
-        "Nếu kết quả sai, thì..... 'thôi !' 😂\n"
-        "Nhập /help để biết thêm thông tin chi tiết."
+        "Chọn một tùy chọn dưới đây để tiếp tục.",
+        reply_markup=main_menu()
     )
 
 # Lệnh /tx
@@ -104,7 +112,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_input = ' '.join(context.args)
 
         if not user_input:
-            await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu) đi bạn ơi! 😅")
+            await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu) đi m ơi! 😅")
             return
 
         # Chuyển đổi lịch sử thành danh sách
@@ -112,7 +120,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Kiểm tra định dạng hợp lệ (chỉ chấp nhận "t" hoặc "x")
         if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu), ngu quá có chịu đọc lệnh help k! 🙂")
+            await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu), ngu quá chưa xem lệnh help à! 😜")
             return
 
         # Cập nhật lịch sử thực tế vào bộ nhớ
@@ -129,7 +137,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Chuyển đổi kết quả dự đoán thành biểu tượng
         if result == "t":
-            result_text = "Tài ⚫️\nBật đèn xanh cho bạn, vô luôn! 💸"
+            result_text = "Tài ⚫️\nChưa tài đâu! 💸"
         else:
             result_text = "Xỉu ⚪\nChắc chắn rồi, lần này không thể sai được! 💀"
 
@@ -184,25 +192,7 @@ async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"Lịch sử gần nhất: {' '.join(history_data)}")
 
-# Xử lý nút "Đúng" và "Sai"
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "correct":
-        # Nếu người dùng chọn "Đúng", lưu dữ liệu để huấn luyện mô hình
-        result_text = "Chúc mừng! m đã chọn đúng! 🎉\nĐã lưu dữ liệu vào hệ thống để t càng ngày càng thông minh hơn! 🤖"
-        history_data.append("t" if query.message.text.startswith("Tài") else "x")
-        train_data.append(le.fit_transform(history_data[-5:]))
-        train_labels.append("t" if query.message.text.startswith("Tài") else "x")
-        train_model()
-    else:
-        # Nếu người dùng chọn "Sai", thông báo
-        result_text = "ê, m chọn sai hả xin lỗi! 😅\nĐể t cải thiện lần sau! 💔"
-
-    await query.edit_message_text(text=result_text)
-
-# Lệnh /help
+# Lệnh /help (hướng dẫn)
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Hướng dẫn sử dụng bot:\n"
@@ -212,15 +202,44 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help: Hướng dẫn sử dụng bot."
     )
 
+# Xử lý các sự kiện từ menu
+async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "tx":
+        await tx(update, context)
+    elif query.data == "add":
+        await add(update, context)
+    elif query.data == "history":
+        await history(update, context)
+    elif query.data == "help":
+        await help_command(update, context)
+
+# Xử lý kết quả dự đoán đúng/sai
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "correct":
+        await query.message.reply_text("Chúc mừng! 🎉 Kết quả chính xác, thêm vào dữ liệu huấn luyện để nâng cấp bản thân.")
+    else:
+        await query.message.reply_text("Hên xui thôi 😅 Không sao, chúng ta sẽ tiếp tục học hỏi!")
+
+    # Quay lại menu chính
+    await query.message.reply_text(
+        "Chọn một tùy chọn dưới đây để tiếp tục.",
+        reply_markup=main_menu()
+    )
+
 def main():
     application = ApplicationBuilder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("tx", tx))
     application.add_handler(CommandHandler("add", add))
     application.add_handler(CommandHandler("history", history))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(CallbackQueryHandler(menu_handler))
 
     application.run_polling()
 
