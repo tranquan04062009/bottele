@@ -1,4 +1,5 @@
 import os
+os.system("pip install scikit-learn")
 import random
 import numpy as np
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
