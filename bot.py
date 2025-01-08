@@ -112,33 +112,42 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global last_prediction
     try:
+        # Lấy chuỗi lịch sử từ người dùng
         user_input = ''.join(context.args)
 
         if not user_input:
             await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu)!")
             return
 
-        # Chuyển đổi lịch sử thành danh sách
-        history = user_input.split()
-
-        # Kiểm tra định dạng hợp lệ (chỉ chấp nhận "t" hoặc "x")
+        # Kiểm tra định dạng hợp lệ
         if not all(item in ["t", "x"] for item in user_input):
             await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
             return
 
-        # Cập nhật lịch sử thực tế vào bộ nhớ
+        # Chuyển đổi lịch sử thành danh sách và cập nhật bộ nhớ
+        history = list(user_input)
         history_data.extend(history)
 
-        # Tính toán xác suất
+        # Tính tần suất xuất hiện
         count_t = history.count("t")
         count_x = history.count("x")
         total = len(history)
 
+        # Xác suất dựa trên phân phối
         probability_t = (count_t / total) * 100 if total > 0 else 0
         probability_x = (count_x / total) * 100 if total > 0 else 0
 
-        # Dự đoán kết quả
-        last_prediction = "t" if probability_t > probability_x else "x"
+        # Kết hợp Machine Learning và phân tích xu hướng
+        ml_result = combined_prediction(list(history_data))
+        streak_result = analyze_real_data(list(history_data))
+
+        # Quyết định kết quả cuối cùng
+        if streak_result:  # Nếu phát hiện xu hướng như cầu bệt, cầu 1-1
+            last_prediction = streak_result
+        else:
+            last_prediction = ml_result
+
+        # Soạn thảo kết quả
         result_text = (
             f"Kết quả dự đoán của tôi: {'Tài' if last_prediction == 't' else 'Xỉu'}\n"
             f"Tỉ lệ xác suất: Tài {probability_t:.2f}%, Xỉu {probability_x:.2f}%"
