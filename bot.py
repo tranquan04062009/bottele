@@ -122,7 +122,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = user_input.split()
 
         # Kiểm tra định dạng hợp lệ (chỉ chấp nhận "t" hoặc "x")
-        if not all(item in ["t", "x"] for item in history):
+        if not all(item in ["t", "x"] for item in user_input):
             await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
             return
 
@@ -187,7 +187,7 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_data = user_input.split()
 
         # Kiểm tra định dạng hợp lệ
-        if not all(item in ["t", "x"] for item in new_data):
+        if not all(item in ["t", "x"] for item in user_input):
             await update.message.reply_text("Kết quả chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
             return
 
