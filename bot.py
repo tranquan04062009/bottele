@@ -143,7 +143,7 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_data = user_input.split()
 
         # Kiểm tra định dạng hợp lệ
-        if not all(item in ["t", "x"] for item in usủe_input):
+        if not all(item in ["t", "x"] for item in user_input):
             await update.message.reply_text("Kết quả chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
             return
 
