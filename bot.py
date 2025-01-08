@@ -8,6 +8,14 @@ from collections import Counter, deque
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
+from telegram.ext import CallbackQueryHandler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,  # Thêm dòng này
+    ContextTypes,
+)
 
 # Lấy token từ biến môi trường
 TOKEN = os.getenv("TELEGRAM_TOKEN")
