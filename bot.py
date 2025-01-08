@@ -26,6 +26,7 @@ if not TOKEN:
 history_data = deque(maxlen=400)  # Lưu trữ tối đa 100 kết quả
 train_data = []  # Lịch sử để huấn luyện
 train_labels = []
+recent_history = []
 le = LabelEncoder()
 
 last_prediction = None
@@ -80,10 +81,11 @@ def weighted_prediction(history):
 
     # Tính tần suất xuất hiện của mỗi kết quả
     counter = Counter(history)
+    recent_counter = Counter(recent_history)
     total = len(history)
 
-    prob_tai = counter["t"] / total
-    prob_xiu = counter["x"] / total
+    prob_tai = (counter["t"] + 2 * recent_counter["t"]) / (total + 2 * len(recent_history))
+    prob_xiu = (counter["x"] + 2 * recent_counter["x"]) / (total + 2 * len(recent_history))
 
     # Dự đoán dựa trên trọng số
     return "t" if random.random() < prob_tai else "x"
@@ -97,8 +99,16 @@ def combined_prediction(history):
     if streak_prediction:
         return streak_prediction
 
-    # Dự đoán bằng Machine Learning
-    return ml_prediction(history)
+    # Dự đoán dựa trên trọng số
+    weighted_result = weighted_prediction(history)
+
+    # Dự đoán bằng Machine Learning (nếu có đủ dữ liệu)
+    if len(history) >= 5:
+        ml_result = ml_prediction(history[-5:])
+        if ml_result is not None:
+            return ml_result
+
+    return weighted_result
 
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -126,7 +136,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Chuyển đổi lịch sử thành danh sách và cập nhật bộ nhớ
         history = list(user_input)
-        history_data.extend(history)
+        recent_history.extend(history)
 
         # Tính tần suất xuất hiện
         count_t = history.count("t")
@@ -138,8 +148,8 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         probability_x = (count_x / total) * 100 if total > 0 else 0
 
         # Kết hợp Machine Learning và phân tích xu hướng
-        ml_result = combined_prediction(list(history_data))
-        streak_result = analyze_real_data(list(history_data))
+        ml_result = combined_prediction(list(recent_history))
+        streak_result = analyze_real_data(list(recent_history))
 
         # Quyết định kết quả cuối cùng
         if streak_result:  # Nếu phát hiện xu hướng như cầu bệt, cầu 1-1
@@ -174,15 +184,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "correct":
         # Nếu đúng, thêm kết quả vào dữ liệu huấn luyện
-        history_data.append(last_prediction)
-        train_data.append(le.fit_transform(list(history_data)[-5:]))
-        train_labels.append(last_prediction)
-        train_model()
-        await query.edit_message_text("Kết quả đã được ghi nhận là ĐÚNG!")
+        history_data.append(last_prediction)  # Lưu lại kết quả dự đoán vào lịch sử
+        train_data.append(le.fit_transform(list(history_data)[-5:]))  # Thêm 5 phần tử gần nhất vào dữ liệu huấn luyện
+        train_labels.append(last_prediction)  # Thêm nhãn (dự đoán) vào labels
+        train_model()  # Huấn luyện lại mô hình
+        await query.edit_message_text("Kết quả đã được ghi nhận là ĐÚNG! Mô hình đã được cập nhật.")
     elif query.data == "wrong":
         # Nếu sai, không thêm gì nhưng ghi nhận thông báo
-        await query.edit_message_text("Kết quả đã được ghi nhận là SAI.")
-
+        await query.edit_message_text("Kết quả đã được ghi nhận là SAI. Mô hình không thay đổi.")
 # Lệnh /add (cập nhật dữ liệu thực tế)
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
