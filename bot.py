@@ -1,11 +1,5 @@
 import os
-os.system("pip install pandas")
-os.system("pip install beautifulsoup4")
-os.system("pip install matplotlib")
-os.system("pip install seaborn")
-os.system("pip install scipy")
-os.system("pip install schedule")
-os.system("pip install scikit-learn")
+os.system("pip install schedule numpy pandas scikit-learn requests beautifulsoup4 scipy python-telegram-bot")
 import logging
 import re
 import time
