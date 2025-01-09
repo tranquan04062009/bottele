@@ -20,10 +20,10 @@ from scipy import stats
 import math
 from urllib.parse import urljoin, urlparse
 from queue import Queue
-from datetime import datetime # Missing import
+from datetime import datetime
 
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext, CallbackQueryHandler
 
 
 # Configure logging
@@ -38,6 +38,19 @@ WEB_DATA_FILE = 'web_data.txt'
 
 # Global application object
 application = None 
+
+# --- Helper Functions ---
+
+def create_feedback_keyboard(prediction_id):
+    """Create an inline keyboard for feedback."""
+    keyboard = [
+        [
+            InlineKeyboardButton("Correct", callback_data=f"feedback_correct_{prediction_id}"),
+            InlineKeyboardButton("Incorrect", callback_data=f"feedback_incorrect_{prediction_id}"),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 
 # --- Handler Functions ---
 
@@ -90,7 +103,7 @@ def handle_prediction(update: Update, context: CallbackContext):
             return
 
         numbers = predictor.historical_data['result'].tolist()
-            # Tổng hợp các phương pháp dự đoán
+        # Tổng hợp các phương pháp dự đoán
         math_pred = predictor.mathematical_prediction(numbers)
         stat_analysis = predictor.statistical_analysis(numbers)
         ml_pred = predictor.machine_learning_prediction(numbers)
@@ -98,7 +111,7 @@ def handle_prediction(update: Update, context: CallbackContext):
         evolution_result = predictor.evolutionary_algorithm(numbers)
         opportunities = predictor.opportunity_analysis(numbers)
 
-            # Create report
+        # Create report
         report = f"""
 📊 Báo cáo dự đoán:
 
@@ -125,11 +138,36 @@ def handle_prediction(update: Update, context: CallbackContext):
 
 🎯 Dự đoán cuối cùng: {ml_pred['ensemble_prediction']:.2f}
 ⚠️ Độ tin cậy: {ml_pred['confidence']['confidence_score']*100:.2f}%
-            """
-        context.bot.send_message(chat_id=update.effective_chat.id, text=report)
+        """
+
+        prediction_id = len(predictor.historical_data)
+        keyboard = create_feedback_keyboard(prediction_id)
+        context.bot.send_message(chat_id=update.effective_chat.id, text=report, reply_markup=keyboard)
     except Exception as e:
         logging.error(f"Error in handle_prediction: {str(e)}")
         context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
+
+
+def handle_feedback(update: Update, context: CallbackContext):
+    """Handles feedback from the buttons."""
+    try:
+        query = update.callback_query
+        query.answer()
+
+        feedback_data = query.data.split('_') # feedback_correct_{prediction_id} or feedback_incorrect_{prediction_id}
+        feedback_type = feedback_data[1]
+        prediction_id = int(feedback_data[2])
+
+        if prediction_id < len(predictor.historical_data):
+            predictor.record_feedback(prediction_id, feedback_type)
+            query.edit_message_text(text=f"Đã nhận phản hồi: {feedback_type} cho dự đoán {prediction_id}")
+            if feedback_type == "correct":
+                 predictor.update_models() # Update if the model is correct
+        else:
+             query.edit_message_text(text="Dự đoán không hợp lệ. Có thể đã bị xoá.")
+    except Exception as e:
+         logging.error(f"Error in handle_feedback: {str(e)}")
+         query.edit_message_text(text="Lỗi xử lý phản hồi. Vui lòng thử lại.")
 
 class GamePredictor:
     def __init__(self, bot_token):
@@ -147,8 +185,8 @@ class GamePredictor:
     def start_bot(self):
         self.schedule_data_collection()
         self.schedule_model_updates()
-        application.run_polling() # Use global application object
-
+        self.application.add_handler(CallbackQueryHandler(handle_feedback))
+        self.application.run_polling() # Use global application object
 
     def load_game_data(self):
         """Load game data from CSV file"""
@@ -182,6 +220,15 @@ class GamePredictor:
         self.historical_data = pd.concat([self.historical_data, new_data], ignore_index=True) # Add data
         self.save_game_data() # Save to file
         logging.info(f"Recorded game result: {result} at {timestamp}")
+    
+    def record_feedback(self, prediction_id, feedback_type):
+       """Record feedback for a specific prediction"""
+       try:
+          self.historical_data.loc[prediction_id, 'feedback'] = feedback_type
+          self.save_game_data()
+          logging.info(f"Recorded feedback: {feedback_type} for prediction {prediction_id}")
+       except Exception as e:
+            logging.error(f"Error recording feedback: {str(e)}")
 
     def collect_data_from_url(self, url, selector, update: Update, context: CallbackContext):
       """Thu thập và xử lý dữ liệu từ URL"""
@@ -213,11 +260,11 @@ class GamePredictor:
             # Record valid numbers in history data
             if numbers:
                 for number in numbers:
-                    self.record_game_result(number)
-                    logging.info(f"Extracted number from web: {number}")
+                   self.record_game_result(number)
+                   logging.info(f"Extracted number from web: {number}")
             else:
-                logging.warning(f"No numbers found on {url}")
-                context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
+               logging.warning(f"No numbers found on {url}")
+               context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
       except requests.exceptions.RequestException as e:
             logging.error(f"Error fetching URL {url}: {str(e)}")
             context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
@@ -260,9 +307,15 @@ class GamePredictor:
             if len(self.historical_data) < 10:
                 logging.info("Not enough data to train models.")
                 return
+            
+            # Filter for correct feedback
+            correct_data = self.historical_data[self.historical_data['feedback'] == 'correct']
+            if len(correct_data) < 5: # At least 5 examples before we update
+                logging.info("Not enough 'correct' feedback to train models.")
+                return
 
-            X = self.prepare_features()
-            y = self.historical_data['result'].values
+            X = self.prepare_features(correct_data)
+            y = correct_data['result'].values
             
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             
@@ -276,9 +329,9 @@ class GamePredictor:
         except Exception as e:
             logging.error(f"Model update error: {str(e)}")
 
-    def prepare_features(self):
+    def prepare_features(self, df):
         """Chuẩn bị features cho ML"""
-        df = self.historical_data.copy()
+        df = df.copy()
         
         # Tạo features
         df['hour'] = df['timestamp'].dt.hour
@@ -566,7 +619,11 @@ class GamePredictor:
 def main():
     """Main entry point for the bot"""
     global application
-    bot_token = "7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0"
+    bot_token = os.environ.get("BOT_TOKEN")  # Get the bot token from environment variable
+    if not bot_token:
+       logging.error("Bot token not found. Make sure to set the BOT_TOKEN environment variable.")
+       return
+
     predictor = GamePredictor(bot_token)
     application = predictor.application # set the application globally
 
@@ -576,7 +633,9 @@ def main():
     application.add_handler(CommandHandler("url", handle_url))
     application.add_handler(CommandHandler("predict", handle_prediction))
     
-    predictor.start_bot()
+    logging.info("Bot is starting...")  # Notify that the bot is starting
+    predictor.start_bot()  # Start the bot
+    logging.info("Bot has started successfully.")
 
 
 if __name__ == "__main__":
