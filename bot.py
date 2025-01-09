@@ -5,6 +5,13 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
 from collections import Counter, deque
+import os
+import random
+import numpy as np
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+from telegram.constants import ParseMode
+from collections import Counter, deque
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.svm import SVC
 from sklearn.preprocessing import LabelEncoder, StandardScaler, PolynomialFeatures
@@ -112,7 +119,6 @@ def load_data_state():
                print("Đã tải dữ liệu trạng thái từ file.")
          except Exception as e:
              print(f"Could not open file  {e}")
-
 def generate_history_chart(history):
     if not history:
        return None
@@ -282,7 +288,6 @@ def adjust_strategy_weights(feedback, strategy):
     strategy_weights[strategy] += weight_change * strategy_weights[strategy] * 0.15
     strategy_weights[strategy] = min(max(strategy_weights[strategy], 0.01), 2.0)
     return strategy_weights
-
 def mathematical_calculation(history):
      if not history or len(history) < 5 :
           return None
@@ -293,7 +298,6 @@ def mathematical_calculation(history):
           return  "x" if t_count > x_count  else "t"
      else:
         return  "t" if random.random() < 0.6 else  "x"  if random.random() > 0.3 else None
-
 def statistical_algorithm(history):
    if not history or len(history) < 10:
      return None
@@ -319,7 +323,6 @@ def statistical_analysis(history):
            return 't' if prob_x > prob_t else 'x'
      else :
         return 't' if random.random() < 0.5 else 'x' if random.random() > 0.40  else  None
-
 def numerical_analysis(history):
    if not history or len(history) < 6:
      return None
@@ -332,7 +335,6 @@ def numerical_analysis(history):
        return 'x' if random.random() > 0.4 else "t"
    else :
         return None
-
 def search_algorithm(history):
      if not history or len(history) < 7 :
           return None
@@ -342,7 +344,6 @@ def search_algorithm(history):
           if pattern in sequence_last_7:
               return 'x' if pattern[0] == "t"  else 't'
      return None
-
 def automatic_programming(history):
      if not history or len(history) < 5:
           return None
@@ -352,7 +353,6 @@ def automatic_programming(history):
      if  last_5 in ['xtxtx', 'txtxt', 'txxtx' , "xttxx"  ] :
           return  't' if  last_5[0] == "x"  else "x"
      return None
-
 def theorem_algorithm(history):
     if not history or len(history) < 6:
        return None
@@ -497,8 +497,12 @@ async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE):
       save_cau_data()
       await update.message.reply_text("🔄 Đã cập nhật dữ liệu cầu vào file.")
 async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-      save_data_state()
-      await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
+      try:
+        save_data_state()
+        await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
+      except Exception as e: # added parameter checks for exception output
+         print(f"Error during saving data state {e}")
+         await update.message.reply_text("💾 Không thể lưu dữ liệu")
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_input = ' '.join(context.args)
@@ -573,7 +577,7 @@ async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await update.message.reply_text(f"📜 Lịch sử gần đây: {' '.join(history_data)}")
 async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chart_image = generate_history_chart(history_data)
-    if chart_image is None:
+        if chart_image is None:
         await update.message.reply_text("📊 Không có dữ liệu để hiển thị biểu đồ.")
         return
     try:
