@@ -1,2 +1,8 @@
 python-telegram-bot==20.0
 numpy==1.23.0
+schedule
+pandas 
+scikit-learn 
+requests 
+beautifulsoup4 
+scipy
