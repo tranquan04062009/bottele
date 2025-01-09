@@ -113,7 +113,8 @@ async def handle_url(update: Update, context: CallbackContext):
               return
          url, selector = parts[1], parts[2]
          await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đang thu thập dữ liệu từ {url} sử dụng selector `{selector}`...")
-         predictor.collect_data_from_url(url, selector, update, context)
+         await predictor.collect_data_from_url(url, selector, update, context)
+
     except IndexError:
          await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp một URL hợp lệ và selector sau lệnh /url.")
     except Exception as e:
@@ -142,6 +143,7 @@ Số dự đoán không chính xác: {incorrect_count}
         logging.error(f"Error in handle_stats: {str(e)}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra khi hiển thị thống kê")
 
+
 async def handle_history(update: Update, context: CallbackContext):
     """Handles the /history command"""
     try:
@@ -153,8 +155,6 @@ async def handle_history(update: Update, context: CallbackContext):
     except Exception as e:
         logging.error(f"Error in handle_history: {str(e)}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi hiển thị lịch sử dự đoán.")
-
-
 
 async def handle_prediction(update: Update, context: CallbackContext):
     """Handles the /predict command"""
@@ -207,7 +207,6 @@ async def handle_prediction(update: Update, context: CallbackContext):
     except Exception as e:
         logging.error(f"Error in handle_prediction: {str(e)}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
-
 
 async def handle_feedback(update: Update, context: CallbackContext):
     """Handles feedback from the buttons."""
@@ -292,9 +291,9 @@ class GamePredictor:
        except Exception as e:
             logging.error(f"Error recording feedback: {str(e)}")
 
-    def collect_data_from_url(self, url, selector, update: Update, context: CallbackContext):
-      """Thu thập và xử lý dữ liệu từ URL"""
-      try:
+    async def collect_data_from_url(self, url, selector, update: Update, context: CallbackContext):
+        """Thu thập và xử lý dữ liệu từ URL"""
+        try:
             response = requests.get(url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -325,14 +324,14 @@ class GamePredictor:
                    self.record_game_result(number)
                    logging.info(f"Extracted number from web: {number}")
             else:
-               logging.warning(f"No numbers found on {url}")
-               await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
-      except requests.exceptions.RequestException as e:
-            logging.error(f"Error fetching URL {url}: {str(e)}")
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
-      except Exception as e:
-            logging.error(f"Error collecting data from {url}: {str(e)}")
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi không xác định: {str(e)}")
+                logging.warning(f"No numbers found on {url}")
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
+        except requests.exceptions.RequestException as e:
+                logging.error(f"Error fetching URL {url}: {str(e)}")
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
+        except Exception as e:
+             logging.error(f"Error collecting data from {url}: {str(e)}")
+             await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi không xác định: {str(e)}")
 
     def extract_numbers_from_text(self, text):
         """Extract numbers from text using regular expression"""
@@ -697,6 +696,7 @@ def main():
     application.add_handler(CommandHandler("tx", handle_tx))
     application.add_handler(CommandHandler("stats", handle_stats))
     application.add_handler(CommandHandler("history", handle_history))
+
 
     logging.info("Bot is starting...")  # Notify that the bot is starting
     predictor.start_bot()  # Start the bot
