@@ -22,7 +22,8 @@ from urllib.parse import urljoin, urlparse
 from queue import Queue
 
 from telegram import Update
-from telegram.ext import Updater, CommandHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
+
 
 # Configure logging
 LOG_FILE = 'bot_log.txt'
@@ -36,9 +37,7 @@ WEB_DATA_FILE = 'web_data.txt'
 
 class GamePredictor:
     def __init__(self, bot_token):
-         self.update_queue = Queue()
-         self.updater = Updater(bot_token, update_queue=self.update_queue)
-         self.dispatcher = self.updater.dispatcher # Corrected line
+         self.application = ApplicationBuilder().token(bot_token).build()
          self.game_data = []
          self.historical_data = pd.DataFrame()
          self.models = {
@@ -53,19 +52,18 @@ class GamePredictor:
         self.setup_handlers()
         self.schedule_data_collection()
         self.schedule_model_updates()
-        self.updater.start_polling()
-        self.updater.idle()
+        self.application.run_polling()
 
     def setup_handlers(self):
-        self.dispatcher.add_handler(CommandHandler("start", self.send_welcome))
-        self.dispatcher.add_handler(CommandHandler("help", self.send_help))
-        self.dispatcher.add_handler(CommandHandler("url", self.handle_url))
-        self.dispatcher.add_handler(CommandHandler("predict", self.handle_prediction))
+        self.application.add_handler(CommandHandler("start", self.send_welcome))
+        self.application.add_handler(CommandHandler("help", self.send_help))
+        self.application.add_handler(CommandHandler("url", self.handle_url))
+        self.application.add_handler(CommandHandler("predict", self.handle_prediction))
 
-    def send_welcome(self, update: Update, ):
-         update.message.reply_text("Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
+    def send_welcome(self, update: Update, context: CallbackContext):
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
 
-    def send_help(self, update: Update):
+    def send_help(self, update: Update, context: CallbackContext):
         help_text = """
 Các lệnh có sẵn:
 /predict - Dự đoán kết quả tiếp theo
@@ -77,19 +75,19 @@ Các lệnh có sẵn:
 /accuracy - Xem độ chính xác
 /url <web_url> <selector> - Thu thập dữ liệu từ trang web
             """
-        update.message.reply_text(help_text)
+        context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
 
-    def handle_url(self, update: Update):
+    def handle_url(self, update: Update, context: CallbackContext):
          try:
             parts = update.message.text.split(' ', 2)
             if len(parts) < 3:
-                update.message.reply_text("Vui lòng cung cấp URL và CSS selector. Ví dụ: `/url <url> <css selector>`")
+                context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp URL và CSS selector. Ví dụ: `/url <url> <css selector>`")
                 return
             url, selector = parts[1], parts[2]
-            self.collect_data_from_url(url, selector, update)
-            update.message.reply_text(f"Đang thu thập dữ liệu từ {url} sử dụng selector `{selector}`...")
+            self.collect_data_from_url(url, selector, update, context)
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đang thu thập dữ liệu từ {url} sử dụng selector `{selector}`...")
          except IndexError:
-            update.message.reply_text("Vui lòng cung cấp một URL hợp lệ và selector sau lệnh /url.")
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp một URL hợp lệ và selector sau lệnh /url.")
 
     def load_game_data(self):
         """Load game data from CSV file"""
@@ -124,9 +122,10 @@ Các lệnh có sẵn:
         self.save_game_data() # Save to file
         logging.info(f"Recorded game result: {result} at {timestamp}")
 
-    def collect_data_from_url(self, url, selector, update: Update):
-        """Thu thập và xử lý dữ liệu từ URL"""
-        try:
+
+    def collect_data_from_url(self, url, selector, update: Update, context: CallbackContext):
+      """Thu thập và xử lý dữ liệu từ URL"""
+      try:
             response = requests.get(url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -146,7 +145,7 @@ Các lệnh có sẵn:
                         break
                 else: # If no common selectors work
                     logging.error(f"Could not find data using any selector on {url}")
-                    update.message.reply_text(f"Không tìm thấy dữ liệu trên {url} với selector đã cho, hoặc selector mặc định.")
+                    context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy dữ liệu trên {url} với selector đã cho, hoặc selector mặc định.")
                     return
 
             text_data = ' '.join([el.get_text() for el in elements])
@@ -158,13 +157,13 @@ Các lệnh có sẵn:
                 logging.info(f"Extracted number from web: {number}")
             else:
                 logging.warning(f"No numbers found on {url}")
-                update.message.reply_text(f"Không có số nào được tìm thấy trên {url}")
-        except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching URL {url}: {str(e)}")
-                update.message.reply_text(f"Lỗi khi truy cập URL: {str(e)}")
-        except Exception as e:
+                context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
+      except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching URL {url}: {str(e)}")
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
+      except Exception as e:
             logging.error(f"Error collecting data from {url}: {str(e)}")
-            update.message.reply_text(f"Lỗi không xác định: {str(e)}")
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi không xác định: {str(e)}")
     
     def extract_numbers_from_text(self, text):
         """Extract numbers from text using regular expression"""
@@ -503,11 +502,11 @@ Các lệnh có sẵn:
         
         return max(min(score, 100), 0)  # Normalize to 0-100
     
-    def handle_prediction(self, update: Update):
+    def handle_prediction(self, update: Update, context: CallbackContext):
         """Xử lý lệnh dự đoán"""
         try:
             if len(self.historical_data) < 10:
-                update.message.reply_text("Cần ít nhất 10 số để dự đoán chính xác.")
+                context.bot.send_message(chat_id=update.effective_chat.id, text="Cần ít nhất 10 số để dự đoán chính xác.")
                 return
 
             numbers = self.historical_data['result'].tolist()
@@ -548,11 +547,11 @@ Các lệnh có sẵn:
 ⚠️ Độ tin cậy: {ml_pred['confidence']['confidence_score']*100:.2f}%
             """
 
-            update.message.reply_text(report)
+            context.bot.send_message(chat_id=update.effective_chat.id, text=report)
             
         except Exception as e:
             logging.error(f"Prediction error: {str(e)}")
-            update.message.reply_text("Có lỗi xảy ra trong quá trình dự đoán.")
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
 
 if __name__ == "__main__":
     bot_token = "7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0"
