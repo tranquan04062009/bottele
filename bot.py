@@ -9,7 +9,11 @@ os.system("pip install seaborn")
 os.system("pip install scipy")
 os.system("pip install schedule")
 os.system("pip install scikit-learn")
-import telebot
+import logging
+import re
+import time
+import threading
+import schedule
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -19,43 +23,59 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import requests
 from bs4 import BeautifulSoup
-import json
-from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
-import seaborn as sns
 from collections import Counter, defaultdict
 import warnings
-import logging
-import schedule
-import time
-import threading
 from scipy import stats
 import math
 
-# Cấu hình logging
-logging.basicConfig(filename='bot_log.txt', level=logging.INFO)
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
+
+
+# Configure logging
+LOG_FILE = 'bot_log.txt'
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 warnings.filterwarnings('ignore')
+
+DATA_FILE = 'game_data.csv'
+MODEL_UPDATE_INTERVAL_MINUTES = 10
+WEB_DATA_FILE = 'web_data.txt'
 
 class GamePredictor:
     def __init__(self, bot_token):
-        self.bot = telebot.TeleBot(bot_token)  # Khởi tạo bot ở đây
-        self.game_data = []
-        self.historical_data = pd.DataFrame()
+         self.updater = Updater(bot_token, use_context=True)
+         self.dispatcher = self.updater.dispatcher
+         self.game_data = []
+         self.historical_data = pd.DataFrame()
+         self.models = {
+            'lr': LinearRegression(),
+            'rf': RandomForestRegressor(),
+            'svr': SVR(kernel='rbf')
+         }
+         self.scaler = StandardScaler()
+         self.load_game_data()
+
 
     def start(self):
-        self.setup_handlers()  # Đảm bảo handler được setup
-        self.schedule_data_collection()  # Đảm bảo thu thập dữ liệu định kỳ
-        self.bot.infinity_polling()  # Bắt đầu polling để nhận tin nhắn từ người dùng
+        self.setup_handlers()
+        self.schedule_data_collection()
+        self.schedule_model_updates()
+        self.updater.start_polling()
+        self.updater.idle()
+
 
     def setup_handlers(self):
-        # Lưu ý dùng self.bot.message_handler thay vì bot.message_handler
-        @self.bot.message_handler(commands=['start'])
-        def send_welcome(message):
-            self.bot.reply_to(message, "Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
+        self.dispatcher.add_handler(CommandHandler("start", self.send_welcome))
+        self.dispatcher.add_handler(CommandHandler("help", self.send_help))
+        self.dispatcher.add_handler(CommandHandler("url", self.handle_url))
+        self.dispatcher.add_handler(CommandHandler("predict", self.handle_prediction))
 
-        @self.bot.message_handler(commands=['help'])
-        def send_help(message):
-            help_text = """
+
+    def send_welcome(self, update: Update, context: CallbackContext):
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
+
+    def send_help(self, update: Update, context: CallbackContext):
+        help_text = """
 Các lệnh có sẵn:
 /predict - Dự đoán kết quả tiếp theo
 /stats - Xem thống kê chi tiết
@@ -66,76 +86,131 @@ Các lệnh có sẵn:
 /accuracy - Xem độ chính xác
 /url <web_url> - Thu thập dữ liệu từ trang web
             """
-            self.bot.reply_to(message, help_text)
-        
-        @self.bot.message_handler(commands=['url'])
-        def handle_url(message):
-            """Xử lý lệnh /url để thu thập dữ liệu từ trang web"""
-            try:
-                # Lấy URL từ lệnh
-                url = message.text.split(' ', 1)[1]
-                
-                # Gọi hàm thu thập dữ liệu từ URL
-                self.collect_data_from_url(url)
-                self.bot.reply_to(message, f"Đang thu thập dữ liệu từ {url}...")
-            except IndexError:
-                self.bot.reply_to(message, "Vui lòng cung cấp một URL hợp lệ sau lệnh /url.")
+        context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
 
-    def collect_data_from_url(self, url):
+    def handle_url(self, update: Update, context: CallbackContext):
+         try:
+            url = context.args[0]
+            self.collect_data_from_url(url, update, context) # Pass context to fetch message
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đang thu thập dữ liệu từ {url}...")
+         except IndexError:
+              context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp một URL hợp lệ sau lệnh /url.")
+
+    def load_game_data(self):
+        """Load game data from CSV file"""
+        try:
+            if os.path.exists(DATA_FILE):
+                self.historical_data = pd.read_csv(DATA_FILE, parse_dates=['timestamp'])
+                logging.info(f"Loaded {len(self.historical_data)} records from {DATA_FILE}")
+            else:
+                logging.info(f"{DATA_FILE} not found, starting with empty data.")
+        except Exception as e:
+            logging.error(f"Error loading game data: {str(e)}")
+
+    def save_game_data(self):
+        """Save game data to CSV file"""
+        try:
+            self.historical_data.to_csv(DATA_FILE, index=False)
+            logging.info(f"Saved {len(self.historical_data)} records to {DATA_FILE}")
+        except Exception as e:
+            logging.error(f"Error saving game data: {str(e)}")
+
+    def collect_data(self):
+       """Scheduled data collection (example: random number between 1 and 6)"""
+       # Generate a random game result
+       new_result = np.random.randint(1, 7) # simulate a dice roll
+       self.record_game_result(new_result)
+
+
+    def record_game_result(self, result):
+        """Record a single game result to the data"""
+        timestamp = datetime.now()
+        new_data = pd.DataFrame({'result': [result], 'timestamp': [timestamp]})
+        self.historical_data = pd.concat([self.historical_data, new_data], ignore_index=True) # Add data
+        self.save_game_data() # Save to file
+        logging.info(f"Recorded game result: {result} at {timestamp}")
+
+    def collect_data_from_url(self, url, update: Update, context: CallbackContext):
         """Thu thập và xử lý dữ liệu từ URL"""
         try:
             response = requests.get(url)
+            response.raise_for_status() # Raise error for bad status codes
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Giả sử ta lấy tất cả các đoạn văn bản từ trang web
-            paragraphs = soup.find_all('p')
+             # Extract data based on website structure (adapt to each site)
+            # Example: Assuming numbers are in <p> tags with a particular class
+            # Adjust the CSS selector to fit your target website
+            paragraphs = soup.find_all('p', class_='your-data-class') 
+            if not paragraphs:
+                logging.warning(f"No data found with specified selector on {url}")
+                context.bot.send_message(chat_id=update.effective_chat.id,text=f"Không tìm thấy dữ liệu phù hợp trên {url}")
+                return
+
             text_data = ' '.join([para.get_text() for para in paragraphs])
+            numbers = self.extract_numbers_from_text(text_data)
             
-            # Xử lý dữ liệu nếu cần (ví dụ: chuyển thành DataFrame hoặc thêm vào game_data)
-            self.game_data.append(text_data)  # Thêm dữ liệu mới vào game_data
-            logging.info(f"Thu thập dữ liệu từ {url}")
-            
-            # In ra một phần dữ liệu thu thập được
-            logging.info(f"Thu thập {len(paragraphs)} đoạn văn bản từ trang web.")
-            
-            # Tiến hành phân tích hoặc dự đoán nếu cần
-            self.analyze_data()
+            # Record valid numbers in history data
+            if numbers:
+              for number in numbers:
+                self.record_game_result(number) 
+                logging.info(f"Extracted number from web: {number}")
+            else:
+                logging.warning(f"No numbers found on {url}")
+                context.bot.send_message(chat_id=update.effective_chat.id,text=f"Không có số nào được tìm thấy trên {url}")
         
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching URL {url}: {str(e)}")
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
+
         except Exception as e:
-            logging.error(f"Lỗi khi thu thập dữ liệu từ {url}: {str(e)}")
-
-    def analyze_data(self):
-        """Tiến hành phân tích dữ liệu đã thu thập (Ví dụ: phân tích mẫu, dự đoán)"""
-        # Đơn giản thêm một bước phân tích mẫu từ dữ liệu đã thu thập
-        if self.game_data:
-            data_text = ' '.join(self.game_data)  # Kết hợp tất cả dữ liệu
-            word_count = len(data_text.split())
-            logging.info(f"Phân tích dữ liệu thu thập được, tổng số từ: {word_count}")
-            # Tiến hành các phân tích hoặc dự đoán khác từ dữ liệu này
-            # Bạn có thể triển khai các phân tích ở đây như phân tích từ ngữ, mô hình học máy, v.v.
-
+            logging.error(f"Error collecting data from {url}: {str(e)}")
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi không xác định: {str(e)}")
+    
+    def extract_numbers_from_text(self, text):
+        """Extract numbers from text using regular expression"""
+        try:
+            numbers = re.findall(r'\d+', text)  # Find all sequences of digits
+            return [int(num) for num in numbers]
+        except Exception as e:
+           logging.error(f"Error extracting numbers: {str(e)}")
+           return []
+        
     def schedule_data_collection(self):
-        """Lên lịch thu thập dữ liệu mỗi 5 phút"""
+        """Lên lịch thu thập dữ liệu mỗi 1 phút"""
         def run_schedule():
             while True:
                 schedule.run_pending()
                 time.sleep(1)
 
-        schedule.every(1).minutes.do(self.collect_data)  # Đảm bảo có hàm collect_data()
+        schedule.every(1).minutes.do(self.collect_data)
         threading.Thread(target=run_schedule).start()
+    
+    def schedule_model_updates(self):
+       """Lên lịch cập nhật models"""
+       def run_model_updates():
+           while True:
+               schedule.run_pending()
+               time.sleep(1)
+
+       schedule.every(MODEL_UPDATE_INTERVAL_MINUTES).minutes.do(self.update_models)
+       threading.Thread(target=run_model_updates).start()
 
     def update_models(self):
         """Cập nhật các model ML"""
         try:
+            if len(self.historical_data) < 10:
+                logging.info("Not enough data to train models.")
+                return
+
             X = self.prepare_features()
             y = self.historical_data['result'].values
             
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             
             # Cập nhật các model
-            self.models['lr'] = LinearRegression().fit(X_train, y_train)
-            self.models['rf'] = RandomForestRegressor().fit(X_train, y_train)
-            self.models['svr'] = SVR(kernel='rbf').fit(X_train, y_train)
+            self.models['lr'].fit(X_train, y_train)
+            self.models['rf'].fit(X_train, y_train)
+            self.models['svr'].fit(X_train, y_train)
             
             logging.info("Models updated successfully")
             
@@ -155,6 +230,9 @@ Các lệnh có sẵn:
         # One-hot encoding cho categorical features
         features = pd.get_dummies(df[['hour', 'day_of_week']])
         features = features.join(df[['rolling_mean', 'rolling_std']])
+        
+        # Fill any remaining NaN with 0
+        features.fillna(0, inplace=True)
         
         return self.scaler.fit_transform(features)
 
@@ -424,24 +502,24 @@ Các lệnh có sẵn:
         score -= volatility['historical_volatility']
         
         return max(min(score, 100), 0)  # Normalize to 0-100
-
-    @bot.message_handler(commands=['predict'])
-    def handle_prediction(self, message):
+    
+    def handle_prediction(self, update: Update, context: CallbackContext):
         """Xử lý lệnh dự đoán"""
         try:
-            if len(self.game_data) < 10:
-                self.bot.reply_to(message, "Cần ít nhất 10 số để dự đoán chính xác.")
+            if len(self.historical_data) < 10:
+                context.bot.send_message(chat_id=update.effective_chat.id, text="Cần ít nhất 10 số để dự đoán chính xác.")
                 return
 
+            numbers = self.historical_data['result'].tolist()
             # Tổng hợp các phương pháp dự đoán
-            math_pred = self.mathematical_prediction(self.game_data)
-            stat_analysis = self.statistical_analysis(self.game_data)
-            ml_pred = self.machine_learning_prediction(self.game_data)
-            patterns = self.pattern_analysis(self.game_data)
-            evolution_result = self.evolutionary_algorithm(self.game_data)
-            opportunities = self.opportunity_analysis(self.game_data)
+            math_pred = self.mathematical_prediction(numbers)
+            stat_analysis = self.statistical_analysis(numbers)
+            ml_pred = self.machine_learning_prediction(numbers)
+            patterns = self.pattern_analysis(numbers)
+            evolution_result = self.evolutionary_algorithm(numbers)
+            opportunities = self.opportunity_analysis(numbers)
 
-            # Tạo báo cáo
+            # Create report
             report = f"""
 📊 Báo cáo dự đoán:
 
@@ -470,13 +548,13 @@ Các lệnh có sẵn:
 ⚠️ Độ tin cậy: {ml_pred['confidence']['confidence_score']*100:.2f}%
             """
 
-            self.bot.reply_to(message, report)
+            context.bot.send_message(chat_id=update.effective_chat.id, text=report)
             
         except Exception as e:
             logging.error(f"Prediction error: {str(e)}")
-            self.bot.reply_to(message, "Có lỗi xảy ra trong quá trình dự đoán.")
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
 
 if __name__ == "__main__":
-    predictor = GamePredictor("7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0")
-    game_predictor = GamePredictor(bot_token)
+    bot_token = "7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0"
+    predictor = GamePredictor(bot_token)
     predictor.start()
