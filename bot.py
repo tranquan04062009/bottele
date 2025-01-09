@@ -37,7 +37,7 @@ WEB_DATA_FILE = 'web_data.txt'
 # Global application object
 application = None
 
-# --- Helper Functions --
+# --- Helper Functions ---
 
 def create_feedback_keyboard(prediction_id):
     """Create an inline keyboard for feedback."""
@@ -142,7 +142,6 @@ Số dự đoán không chính xác: {incorrect_count}
         logging.error(f"Error in handle_stats: {str(e)}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra khi hiển thị thống kê")
 
-
 async def handle_history(update: Update, context: CallbackContext):
     """Handles the /history command"""
     try:
@@ -154,6 +153,8 @@ async def handle_history(update: Update, context: CallbackContext):
     except Exception as e:
         logging.error(f"Error in handle_history: {str(e)}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi hiển thị lịch sử dự đoán.")
+
+
 
 async def handle_prediction(update: Update, context: CallbackContext):
     """Handles the /predict command"""
@@ -206,6 +207,7 @@ async def handle_prediction(update: Update, context: CallbackContext):
     except Exception as e:
         logging.error(f"Error in handle_prediction: {str(e)}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
+
 
 async def handle_feedback(update: Update, context: CallbackContext):
     """Handles feedback from the buttons."""
@@ -695,7 +697,7 @@ def main():
     application.add_handler(CommandHandler("tx", handle_tx))
     application.add_handler(CommandHandler("stats", handle_stats))
     application.add_handler(CommandHandler("history", handle_history))
-    
+
     logging.info("Bot is starting...")  # Notify that the bot is starting
     predictor.start_bot()  # Start the bot
     logging.info("Bot has started successfully.")
