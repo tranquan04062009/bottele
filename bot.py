@@ -43,9 +43,9 @@ class GamePredictor:
         self.historical_data = pd.DataFrame()
         
     def start(self):
-        self.setup_handlers()
-        self.schedule_data_collection()
-        self.bot.infinity_polling()
+        self.setup_handlers()  # Đảm bảo handler được setup
+        self.schedule_data_collection()  # Đảm bảo thu thập dữ liệu định kỳ
+        self.bot.infinity_polling()  # Bắt đầu polling để nhận tin nhắn từ người dùng
 
     def setup_handlers(self):
         @self.bot.message_handler(commands=['start'])
@@ -120,7 +120,7 @@ Các lệnh có sẵn:
                 schedule.run_pending()
                 time.sleep(1)
 
-        schedule.every(5).minutes.do(self.collect_data)
+        schedule.every(5).minutes.do(self.collect_data)  # Đảm bảo có hàm collect_data()
         threading.Thread(target=run_schedule).start()
 
     def update_models(self):
@@ -477,4 +477,5 @@ Các lệnh có sẵn:
 
 if __name__ == "__main__":
     predictor = GamePredictor("7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0")
+    game_predictor = GamePredictor(bot_token)
     predictor.start()
