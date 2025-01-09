@@ -85,8 +85,6 @@ def load_cau_data():
            with open(HISTORY_DATA_PATH, 'r') as f:
                loaded_data = json.load(f)
                history_data = deque(loaded_data, maxlen=600)
-
-               print("Đã tải dữ liệu cầu từ file.")
         except Exception as e:
               print(f"Could not open file for cau data:  {e}")
 
@@ -175,8 +173,6 @@ def prepare_data_for_models(history):
 
     return X, y
 
-
-
 def train_all_models():
      if len(train_data) < 10:
           return
@@ -202,8 +198,10 @@ def train_all_models():
                  pass
 
             model_svm.fit(X, Y)
-            model_calibrated_svm.fit(X,Y)
-
+            try:
+              model_calibrated_svm.fit(X,Y)  # Only fits the method during no data issues parameter validation. so it only fit if has expected datasets parameters, else ignore the error/exception skipping.
+            except ValueError as ve:
+               print (f"Model Calibration Exception : {ve} skip model training")  # message and avoid crashing bot
 
 def ml_prediction(history):
     if len(train_data) < 10:
@@ -211,14 +209,18 @@ def ml_prediction(history):
     features, label = prepare_data_for_models(history)
     if features is None:
        return None
-    model_svm_prob = model_calibrated_svm.predict_proba(features)
-    svm_prediction_label = model_calibrated_svm.predict(features)
+    try : # wrap method prediction for specific models, in case those raise some error.
+      model_svm_prob = model_calibrated_svm.predict_proba(features)
+      svm_prediction_label = model_calibrated_svm.predict(features)
+    except Exception as e : # and skip all others calls in scope of that try call ( all data parameter models) and return only fallback output instead skip error/ crash
+         print (f"SVM prediction Model Exception  {e}, fallback Statistical method...")
+         return statistical_prediction(history)
 
     log_prob, log_label = _predict_probabilty(calibrated_models.get(model_logistic, model_logistic), features)
     sgd_prob, sgd_label = _predict_probabilty(calibrated_models.get(model_sgd, model_sgd), features)
     rf_prob, rf_label = _predict_probabilty(calibrated_models.get(model_rf, model_rf), features)
     gb_prob, gb_label  = _predict_probabilty(calibrated_models.get(model_gb, model_gb), features)
-   
+
 
     tai_probabilities_average = []
     xiu_probabilities_average = []
@@ -236,7 +238,7 @@ def ml_prediction(history):
 
     average_prob_t = np.mean(tai_probabilities_average) if tai_probabilities_average else 0
     average_prob_x = np.mean(xiu_probabilities_average) if xiu_probabilities_average else 0
-   
+
     avg_probabilty = {"t": average_prob_t, "x": average_prob_x}
     svm_label = le.inverse_transform(svm_prediction_label)[0]
   
@@ -246,7 +248,6 @@ def ml_prediction(history):
     else :
 
      return svm_label
-
 
 def _predict_probabilty(model, features):
     if hasattr(model, 'predict_proba'):
@@ -261,8 +262,6 @@ def _predict_probabilty(model, features):
 
                return {"t": float('NaN'), "x": float('NaN')}, None
     return {"t": float('NaN'), "x": float('NaN')}, None
-
-
 
 def cluster_analysis(history):
     if len(history) < 5:
@@ -334,7 +333,6 @@ def combined_prediction(history):
         last_prediction.update( { 'strategy': strategy,'result' : ml_pred})
         return ml_pred
 
-
      probability_dict =calculate_probabilities(history)
      probability_pred = apply_probability_threshold(probability_dict)
      if(probability_pred) :
@@ -352,7 +350,6 @@ def combined_prediction(history):
      strategy = "boosting"
      last_prediction.update({'strategy':strategy,'result':statistical_prediction(history, 0.3) })
      return statistical_prediction(history, 0.3)
-
 
 def calculate_training_status():
     total_predictions = len(user_feedback_history)
@@ -386,8 +383,9 @@ async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await update.message.reply_text("🔄 Đã cập nhật dữ liệu cầu vào file.")
 
 async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-     save_data_state()
-     await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
+     # Removed method body, due new save() by command will take all save state before
+      save_data_state()
+      await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
 
 
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -433,7 +431,6 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
        for item in new_data :
          if item not in ["t", "x"]:
             await update.message.reply_text("🚫 Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
-
             return
 
        history_data.extend(new_data)
