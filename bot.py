@@ -180,7 +180,6 @@ def train_all_models():
     if len(X) > 1 and len(Y) > 1:
         X=np.array(X)
         Y=np.array(Y)
-
         for model in models_to_calibrate:
             try:
 
@@ -190,7 +189,6 @@ def train_all_models():
                 pass
         model_svm.fit(X, Y)
         model_calibrated_svm.fit(X, Y)
-    
     
 
 def ml_prediction(history):
@@ -358,8 +356,8 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         history_data.extend(history)
         if len(history) >= 5:
-           train_data.append(list(history_data))
-           train_labels.append(history[-1])
+            train_data.append(list(history_data))
+            train_labels.append(history[-1])
         train_all_models()
         result = combined_prediction(list(history_data))
         last_prediction["model"] = BOT_NAME
@@ -383,12 +381,12 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         new_data = user_input.split()
         if not all(item in ["t", "x"] for item in new_data):
-             await update.message.reply_text("Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
-             return
+            await update.message.reply_text("Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
+            return
         history_data.extend(new_data)
         for i in range(len(new_data) - 5 + 1):
-             train_data.append(list(history_data))
-             train_labels.append(new_data[i + 4])
+            train_data.append(list(history_data))
+            train_labels.append(new_data[i + 4])
         train_all_models()
         await update.message.reply_text(f"Đã cập nhật dữ liệu: {new_data}")
     except Exception as e:
@@ -400,8 +398,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     feedback = query.data
     global  user_feedback_history
     if last_prediction.get("strategy") is None or last_prediction.get('result') is None or  last_prediction.get('model')  is None :
-      await query.edit_message_text("Không thể ghi nhận phản hồi. Vui lòng thử lại sau.")
-      return
+        await query.edit_message_text("Không thể ghi nhận phản hồi. Vui lòng thử lại sau.")
+        return
     if feedback == 'correct':
         user_feedback_history.append({'result': last_prediction['result'], 'strategy': last_prediction['strategy'],
                                       'feedback': 'correct', 'timestamp': time.time()})
@@ -429,8 +427,8 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def logchart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-     save_current_history_image()
-     await update.message.reply_text("Đã lưu biểu đồ vào máy chủ.")
+    save_current_history_image()
+    await update.message.reply_text("Đã lưu biểu đồ vào máy chủ.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
