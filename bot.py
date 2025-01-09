@@ -1,3 +1,14 @@
+import os
+os.system("pip install pyTelegramBotAPI")
+os.system("pip install pandas")
+os.system("pip install scikit-learn")
+os.system("pip install requests")
+os.system("pip install beautifulsoup4")
+os.system("pip install matplotlib")
+os.system("pip install seaborn")
+os.system("pip install scipy")
+os.system("pip install schedule")
+os.system("pip install scikit-learn")
 import telebot
 import numpy as np
 import pandas as pd
@@ -20,18 +31,6 @@ import time
 import threading
 from scipy import stats
 import math
-import os
-os.system("pip install pyTelegramBotAPI")
-os.system("pip install numpy")
-os.system("pip install pandas")
-os.system("pip install scikit-learn")
-os.system("pip install requests")
-os.system("pip install beautifulsoup4")
-os.system("pip install matplotlib")
-os.system("pip install seaborn")
-os.system("pip install scipy")
-os.system("pip install schedule")
-os.system("pip install scikit-learn")
 
 # Cấu hình logging
 logging.basicConfig(filename='bot_log.txt', level=logging.INFO)
