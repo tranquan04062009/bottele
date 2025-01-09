@@ -36,9 +36,9 @@ WEB_DATA_FILE = 'web_data.txt'
 
 class GamePredictor:
     def __init__(self, bot_token):
-         self.update_queue = Queue() # Create a queue object to be used in updater
-         self.updater = Updater(bot_token, update_queue=self.update_queue) # Initialize updater with queue
-         self.dispatcher = self.updater.dispatcher
+         self.update_queue = Queue()
+         self.updater = Updater(bot_token, update_queue=self.update_queue)
+         self.dispatcher = self.updater.dispatcher # Corrected line
          self.game_data = []
          self.historical_data = pd.DataFrame()
          self.models = {
@@ -124,10 +124,9 @@ Các lệnh có sẵn:
         self.save_game_data() # Save to file
         logging.info(f"Recorded game result: {result} at {timestamp}")
 
-
     def collect_data_from_url(self, url, selector, update: Update):
-      """Thu thập và xử lý dữ liệu từ URL"""
-      try:
+        """Thu thập và xử lý dữ liệu từ URL"""
+        try:
             response = requests.get(url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -160,10 +159,10 @@ Các lệnh có sẵn:
             else:
                 logging.warning(f"No numbers found on {url}")
                 update.message.reply_text(f"Không có số nào được tìm thấy trên {url}")
-      except requests.exceptions.RequestException as e:
-            logging.error(f"Error fetching URL {url}: {str(e)}")
-            update.message.reply_text(f"Lỗi khi truy cập URL: {str(e)}")
-      except Exception as e:
+        except requests.exceptions.RequestException as e:
+                logging.error(f"Error fetching URL {url}: {str(e)}")
+                update.message.reply_text(f"Lỗi khi truy cập URL: {str(e)}")
+        except Exception as e:
             logging.error(f"Error collecting data from {url}: {str(e)}")
             update.message.reply_text(f"Lỗi không xác định: {str(e)}")
     
@@ -173,9 +172,9 @@ Các lệnh có sẵn:
             numbers = re.findall(r'\d+', text)  # Find all sequences of digits
             return [int(num) for num in numbers]
         except Exception as e:
-           logging.error(f"Error extracting numbers: {str(e)}")
-           return []
-        
+            logging.error(f"Error extracting numbers: {str(e)}")
+            return []
+
     def schedule_data_collection(self):
         """Lên lịch thu thập dữ liệu mỗi 1 phút"""
         def run_schedule():
@@ -185,7 +184,7 @@ Các lệnh có sẵn:
 
         schedule.every(1).minutes.do(self.collect_data)
         threading.Thread(target=run_schedule).start()
-    
+
     def schedule_model_updates(self):
        """Lên lịch cập nhật models"""
        def run_model_updates():
