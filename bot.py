@@ -1,7 +1,5 @@
 import os
 os.system("pip install pandas")
-os.system("pip install scikit-learn")
-os.system("pip install requests")
 os.system("pip install beautifulsoup4")
 os.system("pip install matplotlib")
 os.system("pip install seaborn")
