@@ -24,7 +24,6 @@ from collections import Counter, defaultdict
 import warnings
 from scipy import stats
 import math
-
 from telegram import Update
 from telegram.ext import Updater, CommandHandler
 
