@@ -178,26 +178,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()  # Đáp lại callback để tránh lỗi timeout
 
-    # Xử lý các nút trong menu Tài/Xỉu
     if query.data == "tx_t":
-        history_data.append("Tài")
+        history_data.append("Tài")  # Thêm kết quả vào deque
         result_text = f"ls hiện tại: {' '.join(history_data)}"
         await query.edit_message_text(
             text=result_text,
             reply_markup=tx_menu()
         )
     elif query.data == "tx_x":
-        history_data.append("Xỉu")
+        history_data.append("Xỉu")  # Thêm kết quả vào deque
         result_text = f"ls hiện tại: {' '.join(history_data)}"
         await query.edit_message_text(
             text=result_text,
             reply_markup=tx_menu()
         )
     elif query.data == "finish_tx":
-        # Tạo dự đoán dựa trên lịch sử
-        result = combined_prediction(history_data)
+        # Sử dụng deque để dự đoán kết quả
+        result = combined_prediction(list(history_data))  # Chuyển deque thành list nếu cần
         result_text = f"Bot dự đoán kết quả: {result}"
-        # Hiển thị nút "Đúng" và "Sai" sau khi dự đoán
+        # Nút "Đúng" và "Sai" để đánh giá
         buttons = [
             [
                 InlineKeyboardButton("Đúng", callback_data="correct"),
