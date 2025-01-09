@@ -1,722 +1,650 @@
 import os
-import logging
-import re
-import time
-import threading
-import schedule
+import random
 import numpy as np
-import pandas as pd
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.svm import SVR
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-import requests
-from bs4 import BeautifulSoup
-from collections import Counter, defaultdict
-import warnings
-from scipy import stats
-import math
-from urllib.parse import urljoin, urlparse
-from queue import Queue
-from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup,  ParseMode
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+from collections import Counter, deque
+from sklearn.linear_model import LogisticRegression, SGDClassifier
+from sklearn.svm import SVC
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import accuracy_score
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext, CallbackQueryHandler
+import matplotlib.pyplot as plt
+from io import BytesIO
+import json
+import time
+import sqlite3  # to persistent feedback history
 
-# Configure logging
-LOG_FILE = 'bot_log.txt'
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-warnings.filterwarnings('ignore')
-
-# Set default paths
-DATA_FILE = 'game_data.csv'
-MODEL_UPDATE_INTERVAL_MINUTES = 10
-WEB_DATA_FILE = 'web_data.txt'
-
-# Global application object
-application = None
-
-# --- Helper Functions ---
-
-def create_feedback_keyboard(prediction_id):
-    """Create an inline keyboard for feedback."""
-    keyboard = [
-        [
-            InlineKeyboardButton("Correct", callback_data=f"feedback_correct_{prediction_id}"),
-            InlineKeyboardButton("Incorrect", callback_data=f"feedback_incorrect_{prediction_id}"),
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+# Lấy token từ biến môi trường
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TOKEN:
+    raise ValueError("Vui lòng đặt biến môi trường TELEGRAM_TOKEN chứa token bot!")
+BOT_NAME = "tài xỉu BOT"
+DATABASE_NAME = "txbot_feedback.db"  # Define the database filename for history record
+DATA_PERSISTENT_PATH=  "bot_state.json" #data is stored in case there are interruptions.
 
 
-# --- Handler Functions ---
+# Define model as a state
+history_data = deque(maxlen=400) #used for state parameters of training.
+train_data = [] #array of data set used for ML
+train_labels = []
+le = LabelEncoder() #encoding the parameters
+scaler = StandardScaler()
+# -- reinforcement parameters 
+feedback_weights = {'correct': 1.0, 'incorrect': -0.5} # weight on each approach
+strategy_weights = {'deterministic':0.8, 'cluster':0.5 ,  'machine_learning': 1.2,  'probability':0.4,  'streak':0.3 ,'statistical':0.2 }# used to evaluate weights
+last_prediction = {'result' : None, 'strategy': None , 'model' : None  } # Used to hold last result
+user_feedback_history=deque(maxlen = 1000 )# keep history in memory (for debugging, can save into file)
 
-async def start(update: Update, context: CallbackContext):
-    """Handles the /start command"""
-    try:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
-    except Exception as e:
-        logging.error(f"Error in start handler: {str(e)}")
 
-async def help(update: Update, context: CallbackContext):
-    """Handles the /help command"""
-    try:
-        help_text = """
-Các lệnh có sẵn:
-/predict - Dự đoán kết quả tiếp theo
-/stats - Xem thống kê chi tiết
-/pattern - Phân tích mẫu
-/trend - Xem xu hướng hiện tại
-/analyze - Phân tích toàn diện
-/history - Xem lịch sử dự đoán
-/accuracy - Xem độ chính xác
-/url <web_url> <selector> - Thu thập dữ liệu từ trang web
-/tx <number> <number> <number> - Nhập dữ liệu thủ công (cách nhau bởi khoảng trắng, mỗi số biểu thị một ván tài xỉu (Tổng số chấm của 3 hột xí ngầu).
-            """
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
-    except Exception as e:
-        logging.error(f"Error in help handler: {str(e)}")
 
-async def handle_tx(update: Update, context: CallbackContext):
-    """Handles the /tx command to input historical data for tai xiu"""
-    try:
-         parts = update.message.text.split(' ', 1)
-         if len(parts) < 2:
-               await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp các số cách nhau bằng khoảng trắng sau lệnh /tx. Mỗi số là tổng của 3 hột xí ngầu")
-               return
-         numbers_text = parts[1].strip()
-         numbers = []
-         for num_str in numbers_text.split():
-             if num_str.isdigit() and 3 <= int(num_str) <= 18 :
-                 numbers.append(int(num_str))
-             else:
-                await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng chỉ nhập các số hợp lệ (3-18). Dữ liệu bị bỏ qua")
-                return
-         if numbers:
-            for number in numbers:
-               predictor.record_game_result(number)
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đã ghi nhận {len(numbers)} số tài xỉu: {numbers}")
-         else:
-              await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy số tài xỉu nào")
+# --- Define Models --
+model_logistic = LogisticRegression(random_state=42, solver='liblinear')
+model_svm = SVC(kernel='linear', probability=True, random_state=42) 
+model_sgd = SGDClassifier(loss='log_loss', random_state=42)
+model_rf = RandomForestClassifier(random_state=42)
+model_nb = GaussianNB()
 
-    except Exception as e:
-            logging.error(f"Error in handle_tx: {str(e)}")
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi xử lý lệnh /tx. Vui lòng kiểm tra dữ liệu đầu vào")
+model_calibrated_svm = CalibratedClassifierCV(model_svm, method='isotonic', cv=5)
 
-async def handle_url(update: Update, context: CallbackContext):
-    """Handles the /url command"""
-    try:
-         parts = update.message.text.split(' ', 2)
-         if len(parts) < 3:
-              await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp URL và CSS selector. Ví dụ: `/url <url> <css selector>`")
+model_kmeans = KMeans(n_clusters=2, n_init=10, random_state=42)
+models_to_calibrate=[model_logistic,model_sgd, model_rf]
+calibrated_models={}
+
+# --------DATABASE Functions-----------
+def create_feedback_table():
+        """Creates the user feedback database"""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            feedback_type TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+           
+        )
+    """)
+    conn.commit()
+    conn.close()
+def save_user_feedback(feedback):
+
+     """Saves user's Feedback """
+
+     conn = sqlite3.connect(DATABASE_NAME)
+     cursor = conn.cursor()
+     cursor.execute("INSERT INTO user_feedback (feedback_type) VALUES (?)", (feedback,))
+     conn.commit()
+     conn.close()
+
+
+
+def load_data_state():
+    """load bot status or data. from json (load on init ) if avalable  , defaults otherwise """
+
+    global  strategy_weights, last_prediction, user_feedback_history , history_data
+
+    if os.path.exists(DATA_PERSISTENT_PATH):
+
+      with open(DATA_PERSISTENT_PATH, 'r') as f:
+         loaded_data =json.load(f)
+         #if some keys doesnt' exist, assume empty/ defaults. otherwise take what is avalable to it's variable state
+         strategy_weights=loaded_data.get("strategy_weights",strategy_weights )  #take state/defaults  from existing , defaults in init, 
+         last_prediction = loaded_data.get("last_prediction" , last_prediction )
+         user_feedback_history = deque( loaded_data.get("user_feedback_history" , []),  maxlen = 1000  )
+         history_data  =  deque ( loaded_data.get("history_data" , [])  ,  maxlen=400)   #defaults , otherwise take values previously stored
+
+
+         print("loaded persistent data from previous session")
+
+
+def save_data_state():
+     """ saves to disk state for next boot of program."""
+
+     global strategy_weights, last_prediction, user_feedback_history, history_data
+
+     data= { # prepare an array of values before serializing them using json
+
+       "strategy_weights": strategy_weights,
+         "last_prediction":last_prediction,
+        "user_feedback_history": list(user_feedback_history),
+        "history_data": list(history_data) #serialize the current state in dict to save into a file, note that json dont handle complex datatypes so using casting as type (list(), tuple() if needed )
+
+     }
+     try :
+            with open(DATA_PERSISTENT_PATH,'w') as f :
+                  json.dump(data,f)  #json write object
+                  print("Persistent bot's data is saved.")
+     except Exception as e:
+           print(f"Could not persist information as an error occurred {e}")
+
+
+def save_current_history_image():
+   """ Helper to capture current state from previous sessions"""
+
+   if not history_data: return # no data, ignore 
+   #  only called via /logchart  so no issues of None
+   chart_image= generate_history_chart(history_data) # no data validation
+  
+   ts = time.time()  # using current time so we save images in proper name convention.
+
+   name= "chart_tx_current_state_" + str(ts)+ ".png" #define a good file naming convetions to not conflict of previously captured images
+  
+
+   with open (name,"wb" ) as file:  # we store using "wb"  mode
+       file.write(chart_image.read())   #we have to read  and pass as byte , in disk
+   
+   print ("saving ", name ," in current dir") # for feedback for saving info
+    
+
+# ----Visualization
+def generate_history_chart(history):
+
+    if not history:
+        return None
+    
+    labels, values = zip(*Counter(history).items())  # Extract values
+
+    plt.figure(figsize=(8, 5)) 
+    plt.bar(labels, values, color=['skyblue', 'salmon'])
+
+    for i, v in enumerate(values):
+        plt.text(labels[i], v + 0.1, str(v), ha='center', va='bottom')
+
+
+    plt.xlabel('Kết quả (t: Tài, x: Xỉu)', fontsize=12)
+    plt.ylabel('Tần suất', fontsize=12)
+    plt.title('Phân bố Tần suất kết quả', fontsize=14)
+
+    buffer = BytesIO()
+    plt.savefig(buffer, format='png')
+    buffer.seek(0) # Go to beginning of image bytes, readable by photo param from message in telegram
+    plt.close() #release all previous plot charts for next run
+
+    return buffer
+
+# ----Mathematical Functions
+def calculate_probabilities(history):
+   
+    if not history:
+        return {"t": 0.5 , "x" : 0.5} 
+  
+    counter = Counter(history)
+    total = len(history)
+
+    prob_tai = counter["t"] / total
+    prob_xiu = counter["x"] / total
+
+    return  {"t": prob_tai , "x" : prob_xiu}
+
+def apply_probability_threshold(prob_dict, threshold_t =0.54,threshold_x=0.46):
+
+    return "t" if prob_dict["t"] > threshold_t else "x" if prob_dict["x"] > threshold_x else None # threshold check for prediction logic
+
+
+# ---- Statistical Prediction functions -----
+def statistical_prediction(history,  bias = 0.5):
+    
+    if not history:
+        return random.choice(["t", "x"])
+    counter = Counter(history)
+    total = len(history)
+    if total == 0:
+       return random.choice(["t", "x"])
+    
+    prob_tai = counter["t"] / total
+    prob_xiu = counter["x"] / total
+
+    return "t" if (random.random() < prob_tai * (1+ bias) /2)  else "x" if  random.random()  < (prob_xiu * (1 + bias ) /2 )  else random.choice(["t", "x"])
+
+
+
+#----- PreProcessing data and Scaling -----
+def prepare_data_for_models(history):
+        
+        if len(history) < 5:
+           return  None, None # if params below min.
+    
+        # Using 5 recent historical parameters for model params
+
+        encoded_history_5 = le.fit_transform(history[-5:])
+        features=np.array([encoded_history_5])
+    
+        
+        X= scaler.fit_transform(features) #scale before any model.
+
+        # last result of dataset will determine what next is predicted
+        labels = le.transform([history[-1]])
+        y=np.array(labels)
+     
+        return X , y #return dataset pre-processed
+
+# ---Machine Learning ----
+
+def train_all_models():
+       
+        if len(train_data) < 10: #return if no dataset available or less then 10
               return
-         url, selector = parts[1], parts[2]
-         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đang thu thập dữ liệu từ {url} sử dụng selector `{selector}`...")
-         await predictor.collect_data_from_url(url, selector, update, context)
 
-    except IndexError:
-         await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp một URL hợp lệ và selector sau lệnh /url.")
-    except Exception as e:
-        logging.error(f"Error in handle_url: {str(e)}")
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Có lỗi xảy ra khi xử lý lệnh URL: {e}")
+        X=[]
+        Y=[]
+
+        for history in train_data:
+            features , label = prepare_data_for_models(history) #getting pre-processed parameters
 
 
-async def handle_stats(update: Update, context: CallbackContext):
-    """Handles the /stats command to show simple statistics"""
-    try:
-       if not predictor.historical_data.empty:
-         total_count = len(predictor.historical_data)
-         correct_count = len(predictor.historical_data[predictor.historical_data['feedback'] == 'correct'])
-         incorrect_count = len(predictor.historical_data[predictor.historical_data['feedback'] == 'incorrect'])
+            if features is not None and label is not None:
+                X.append(features[0]) 
+                Y.append(label[0])
 
-         stats_text = f"""
-📊 Thống kê dữ liệu:
-Tổng số lượng dự đoán: {total_count}
-Số dự đoán chính xác: {correct_count}
-Số dự đoán không chính xác: {incorrect_count}
-"""
-         await context.bot.send_message(chat_id=update.effective_chat.id, text=stats_text)
-       else:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Không có dữ liệu để hiển thị thống kê.")
-    except Exception as e:
-        logging.error(f"Error in handle_stats: {str(e)}")
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra khi hiển thị thống kê")
+    
+        if( len(X) >1 and len(Y) > 1):
+
+         
+           # calibrating using the data above from past iterations
+           for model in models_to_calibrate:
+              try:
+                X=np.array(X) # cast array if it changes
+                model.fit(X,Y)  # retrain/calibrate models that could do it
+
+                calibrated_models[model] = model  #keep it to array ( so each one can hold itself with own state)
+
+              except ValueError: # some models ( linear regressors might have valueError on low counts) skip them otherwise 
+                 pass
 
 
-async def handle_history(update: Update, context: CallbackContext):
-    """Handles the /history command"""
-    try:
-      if not predictor.historical_data.empty:
-           history = predictor.historical_data.tail(10).to_string()
-           await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lịch sử dữ liệu gần nhất (10):\n {history}")
-      else:
-           await context.bot.send_message(chat_id=update.effective_chat.id, text="Không có lịch sử dự đoán để hiển thị.")
-    except Exception as e:
-        logging.error(f"Error in handle_history: {str(e)}")
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi hiển thị lịch sử dự đoán.")
 
-async def handle_prediction(update: Update, context: CallbackContext):
-    """Handles the /predict command"""
-    try:
-        if len(predictor.historical_data) < 10:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Cần ít nhất 10 số để dự đoán chính xác.")
-            return
+           # after calibrated training, if proper parameters, training rest
+           X=np.array(X)  #ensure data is proper numpy dataset for models that expect such format as parameters
+           Y=np.array(Y)
 
-        numbers = predictor.historical_data['result'].tolist()
-        # Tổng hợp các phương pháp dự đoán
-        math_pred = predictor.mathematical_prediction(numbers)
-        stat_analysis = predictor.statistical_analysis(numbers)
-        ml_pred = predictor.machine_learning_prediction(numbers)
-        patterns = predictor.pattern_analysis(numbers)
-        evolution_result = predictor.evolutionary_algorithm(numbers)
-        opportunities = predictor.opportunity_analysis(numbers)
+           model_svm.fit(X,Y) #fit / train  using prepared data above and models pre-existing structure
+           model_calibrated_svm.fit(X, Y)  # same, train also the calibrate SVM
+ 
 
-        # Create report
-        report = f"""
-📊 Báo cáo dự đoán:
+def ml_prediction(history):
 
-1. Phân tích toán học:
-- Trung bình: {math_pred['basic_stats']['mean']:.2f}
-- Độ lệch chuẩn: {math_pred['basic_stats']['std']:.2f}
-- Khoảng tin cậy: [{math_pred['confidence_interval'][0]:.2f}, {math_pred['confidence_interval'][1]:.2f}]
-
-2. Phân tích thống kê:
-- Xu hướng: {stat_analysis['trend_analysis']['trend_direction']}
-- Độ mạnh xu hướng: {stat_analysis['trend_analysis']['trend_strength']:.2f}
-
-3. Dự đoán máy học:
-- Ensemble: {ml_pred['ensemble_prediction']:.2f}
-- Độ tin cậy: {ml_pred['confidence']['confidence_score']:.2f}
-
-4. Mẫu phổ biến:
-{patterns['repeating_patterns']}
-
-5. Cơ hội:
-- Điểm cơ hội: {opportunities['opportunity_score']:.2f}/100
-- Xu hướng: {opportunities['current_trend']['direction']}
-- Độ mạnh: {opportunities['current_trend']['strength']:.2f}
-
-🎯 Dự đoán cuối cùng: {ml_pred['ensemble_prediction']:.2f}
-⚠️ Độ tin cậy: {ml_pred['confidence']['confidence_score']*100:.2f}%
-        """
-
-        prediction_id = len(predictor.historical_data)
-        keyboard = create_feedback_keyboard(prediction_id)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=report, reply_markup=keyboard)
-    except Exception as e:
-        logging.error(f"Error in handle_prediction: {str(e)}")
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
-
-async def handle_feedback(update: Update, context: CallbackContext):
-    """Handles feedback from the buttons."""
-    try:
-        query = update.callback_query
-        await query.answer()
-
-        feedback_data = query.data.split('_') # feedback_correct_{prediction_id} or feedback_incorrect_{prediction_id}
-        feedback_type = feedback_data[1]
-        prediction_id = int(feedback_data[2])
-
-        if prediction_id < len(predictor.historical_data):
-            predictor.record_feedback(prediction_id, feedback_type)
-            await query.edit_message_text(text=f"Đã nhận phản hồi: {feedback_type} cho dự đoán {prediction_id}")
-            if feedback_type == "correct":
-                 predictor.update_models() # Update if the model is correct
-        else:
-             await query.edit_message_text(text="Dự đoán không hợp lệ. Có thể đã bị xoá.")
-    except Exception as e:
-         logging.error(f"Error in handle_feedback: {str(e)}")
-         await query.edit_message_text(text="Lỗi xử lý phản hồi. Vui lòng thử lại.")
+    if len(train_data) < 10:
+       return statistical_prediction(history)
 
 
-class GamePredictor:
-    def __init__(self, bot_token):
-         self.application = ApplicationBuilder().token(bot_token).build()
-         self.game_data = []
-         self.historical_data = pd.DataFrame()
-         self.models = {
-            'lr': LinearRegression(),
-            'rf': RandomForestRegressor(),
-            'svr': SVR(kernel='rbf')
-         }
-         self.scaler = StandardScaler()
-         self.load_game_data()
+    features, label =prepare_data_for_models(history)  #retrieve features as pre-processed method call
 
-    def start_bot(self):
-        self.schedule_data_collection()
-        self.schedule_model_updates()
-        self.application.add_handler(CallbackQueryHandler(handle_feedback))
-        self.application.run_polling() # Use global application object
 
-    def load_game_data(self):
-        """Load game data from CSV file"""
+    if features is None : #early exists checks with None , preventing unnesesary calculations down-stream
+          return None
+
+
+
+    # getting trained data
+    model_svm_prob = model_calibrated_svm.predict_proba(features)
+    svm_prediction_label = model_calibrated_svm.predict(features)
+   
+
+    log_prob, log_label =   _predict_probabilty(calibrated_models.get(model_logistic,model_logistic ),features)   #calling each one
+    sgd_prob,  sgd_label=    _predict_probabilty(calibrated_models.get(model_sgd,model_sgd) ,features )  #retrive results, defaults if values are wrong or skip it due models not using that approach.
+    rf_prob,  rf_label=      _predict_probabilty(calibrated_models.get(model_rf,model_rf),features )
+
+    #prepare probablity for average/result outputs
+    tai_probabilities_average=[]
+    xiu_probabilities_average=[]
+
+    if (not np.isnan(log_prob["t"])): tai_probabilities_average.append(log_prob["t"] ) #only append if the probabilities are numbers
+    if (not np.isnan(sgd_prob["t"])) :tai_probabilities_average.append(sgd_prob["t"])
+    if (not np.isnan(rf_prob["t"]))  : tai_probabilities_average.append(rf_prob["t"])
+
+    if (not np.isnan(log_prob["x"]))  :xiu_probabilities_average.append(log_prob["x"]) #same checks before adding
+    if (not np.isnan(sgd_prob["x"])) : xiu_probabilities_average.append(sgd_prob["x"])
+    if (not np.isnan(rf_prob["x"])): xiu_probabilities_average.append(rf_prob["x"])
+
+
+    average_prob_t= np.mean(tai_probabilities_average) if tai_probabilities_average else 0 #averaging results, defaults of '0' on issues
+    average_prob_x= np.mean(xiu_probabilities_average) if xiu_probabilities_average else 0
+
+    avg_probabilty=   {"t" :  average_prob_t,   "x":  average_prob_x   } #prepare value results,
+
+    svm_label = le.inverse_transform(svm_prediction_label)[0]
+
+    predicted_outcome= apply_probability_threshold(avg_probabilty, 0.52,0.48 ) #try the threshold
+    if predicted_outcome : #If we do return result.
+      return predicted_outcome
+    else:
+
+       return svm_label # if not threshold by probability from average. , defaults to use output from  svm ( Support vectors classifiers).
+
+
+
+def _predict_probabilty(model, features):
+     """ helper for models probabilties and labels, return both in dict format if method return predictions, or will return None dict if cannot."""
+     
+     if(  hasattr(model,'predict_proba')): #if probability for specific function avalable then retun, other skip
+            try:
+                probs = model.predict_proba(features)[0] #prediction if probability is supported method
+                labels = le.inverse_transform(model.predict(features))   # using original transformation and model.
+
+                prob_dictionary= dict(zip(le.classes_, probs))
+                return prob_dictionary,labels[0]
+
+            except ValueError :  #error protection during predictions return with None if there is an unhadled model behavior during predict or probabilistic outputs
+                   return   {"t" :  float('NaN'), "x" : float('NaN')}, None # Return dict of not a number if models skip (eg loss fun not using probability as an output/result of calculations) 
+
+     return   {"t" : float('NaN'), "x" : float('NaN')},None   # or return None by defaults for missing models prob outputs
+def cluster_analysis(history):
+        """ Apply KMeans clustering to determine data patterns"""
+
+        if len(history) < 5 :
+             return None
+    
+        encoded_history = le.fit_transform(history)
+        reshaped_history = encoded_history.reshape(-1, 1)
+
         try:
-            if os.path.exists(DATA_FILE):
-                self.historical_data = pd.read_csv(DATA_FILE, parse_dates=['timestamp'])
-                logging.info(f"Loaded {len(self.historical_data)} records from {DATA_FILE}")
-            else:
-                logging.info(f"{DATA_FILE} not found, starting with empty data.")
-        except Exception as e:
-            logging.error(f"Error loading game data: {str(e)}")
-
-    def save_game_data(self):
-        """Save game data to CSV file"""
-        try:
-            self.historical_data.to_csv(DATA_FILE, index=False)
-            logging.info(f"Saved {len(self.historical_data)} records to {DATA_FILE}")
-        except Exception as e:
-            logging.error(f"Error saving game data: {str(e)}")
-
-    def collect_data(self):
-       """Scheduled data collection (example: random number between 1 and 6)"""
-       # Generate a random game result (3-18 simulate Tai Xiu results)
-       new_result = np.random.randint(3, 19) 
-       self.record_game_result(new_result)
-
-    def record_game_result(self, result):
-        """Record a single game result to the data"""
-        timestamp = datetime.now()
-        new_data = pd.DataFrame({'result': [result], 'timestamp': [timestamp]})
-        self.historical_data = pd.concat([self.historical_data, new_data], ignore_index=True) # Add data
-        self.save_game_data() # Save to file
-        logging.info(f"Recorded game result: {result} at {timestamp}")
-
-    def record_feedback(self, prediction_id, feedback_type):
-       """Record feedback for a specific prediction"""
-       try:
-          self.historical_data.loc[prediction_id, 'feedback'] = feedback_type
-          self.save_game_data()
-          logging.info(f"Recorded feedback: {feedback_type} for prediction {prediction_id}")
-       except Exception as e:
-            logging.error(f"Error recording feedback: {str(e)}")
-
-    async def collect_data_from_url(self, url, selector, update: Update, context: CallbackContext):
-      """Thu thập và xử lý dữ liệu từ URL"""
-      try:
-          response = requests.get(url, timeout=10) #Added a timeout to handle slow pages or network issues
-          response.raise_for_status() #Raise HTTPError for bad responses (4xx or 5xx)
-
-          soup = BeautifulSoup(response.content, 'html.parser')
-
-          elements = soup.select(selector)
-
-          if elements:
-                logging.info(f"Found data with user-provided selector '{selector}' on {url}")
-          else:
-               #Fall back to common selector if provided is not good or doesn't work on given url
-               common_selectors = [
-                    'span.bet-history__item-result', # for https://68gb2025.ink/?code=10853170
-                    'p', 'span', 'div', 'li', '.result', '#result',
-                    '.text-result', 'div.item-session.has-result .text',
-                    '.history__item .result', 'div[class*="bet-history-"] .value-result',
-                     'div.result_card .text_number',
-                ]
-               for sel in common_selectors:
-                   elements = soup.select(sel)
-                   if elements:
-                         selector = sel
-                         logging.warning(f"Could not find data with '{selector}', using fallback selector '{sel}' on {url}")
-                         break
-               else:
-                   logging.error(f"Could not find data using any selector on {url}")
-                   await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy dữ liệu trên {url} với selector đã cho, hoặc selector mặc định.")
-                   return
-
-          text_data = ' '.join([el.get_text(strip=True) for el in elements]) #Use a `strip()` to removes all white spaces
-          numbers = self.extract_numbers_from_text(text_data) #use the extractor function to convert from string to number
-
-          if numbers:
-               #Filter number to get number between range 3 and 18, Tai xiu result from 3-18
-                valid_numbers = [num for num in numbers if 3 <= num <= 18]
-                if valid_numbers:
-                      for number in valid_numbers:
-                          self.record_game_result(number)
-                      logging.info(f"Extracted number from web: {valid_numbers}")
-                else:
-                      logging.warning(f"No Tai Xiu numbers (3-18) found on {url}")
-                      await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy số tài xỉu hợp lệ (3-18) trên {url}")
-          else:
-               logging.warning(f"No numbers found on {url}")
-               await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
-
-      except requests.exceptions.RequestException as e:
-             logging.error(f"Error fetching URL {url}: {str(e)}")
-             await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
-
-      except Exception as e:
-             logging.error(f"Error collecting data from {url}: {str(e)}")
-             await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi không xác định: {str(e)}")
-
-
-    def extract_numbers_from_text(self, text):
-        """Extract numbers from text using regular expression, handling whitespace before,after or in numbers"""
-        try:
-             numbers = re.findall(r'\b\d+\b', text)
-             return [int(num) for num in numbers]
-        except Exception as e:
-            logging.error(f"Error extracting numbers: {str(e)}")
-            return []
-
-    def schedule_data_collection(self):
-        """Lên lịch thu thập dữ liệu mỗi 1 phút"""
-        def run_schedule():
-            while True:
-                schedule.run_pending()
-                time.sleep(1)
-
-        schedule.every(1).minutes.do(self.collect_data)
-        threading.Thread(target=run_schedule).start()
-
-    def schedule_model_updates(self):
-       """Lên lịch cập nhật models"""
-       def run_model_updates():
-           while True:
-               schedule.run_pending()
-               time.sleep(1)
-
-       schedule.every(MODEL_UPDATE_INTERVAL_MINUTES).minutes.do(self.update_models)
-       threading.Thread(target=run_model_updates).start()
-
-    def update_models(self):
-        """Cập nhật các model ML"""
-        try:
-            if len(self.historical_data) < 10:
-                logging.info("Not enough data to train models.")
-                return
-
-            # Filter for correct feedback
-            correct_data = self.historical_data[self.historical_data['feedback'] == 'correct']
-            if len(correct_data) < 5: # At least 5 examples before we update
-                logging.info("Not enough 'correct' feedback to train models.")
-                return
-
-            X = self.prepare_features(correct_data)
-            y = correct_data['result'].values
-
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-            # Cập nhật các model
-            self.models['lr'].fit(X_train, y_train)
-            self.models['rf'].fit(X_train, y_train)
-            self.models['svr'].fit(X_train, y_train)
-
-            logging.info("Models updated successfully")
-
-        except Exception as e:
-            logging.error(f"Model update error: {str(e)}")
-
-    def prepare_features(self, df):
-        """Chuẩn bị features cho ML"""
-        df = df.copy()
-
-        # Tạo features
-        df['hour'] = df['timestamp'].dt.hour
-        df['day_of_week'] = df['timestamp'].dt.dayofweek
-        df['rolling_mean'] = df['result'].rolling(window=5).mean()
-        df['rolling_std'] = df['result'].rolling(window=5).std()
-
-        # One-hot encoding cho categorical features
-        features = pd.get_dummies(df[['hour', 'day_of_week']])
-        features = features.join(df[['rolling_mean', 'rolling_std']])
-
-        # Fill any remaining NaN with 0
-        features.fillna(0, inplace=True)
-
-        return self.scaler.fit_transform(features)
-
-    def mathematical_prediction(self, numbers):
-        """1. Tính toán toán học nâng cao"""
-        results = {
-            'basic_stats': {
-                'mean': np.mean(numbers),
-                'median': np.median(numbers),
-                'std': np.std(numbers),
-                'variance': np.var(numbers)
-            },
-            'distribution': {
-                'skewness': stats.skew(numbers),
-                'kurtosis': stats.kurtosis(numbers)
-            },
-            'probability': self.calculate_probability(numbers),
-            'confidence_interval': stats.t.interval(alpha=0.95, df=len(numbers)-1,
-                                                 loc=np.mean(numbers),
-                                                 scale=stats.sem(numbers))
-        }
-        return results
-
-    def calculate_probability(self, numbers):
-        """Tính xác suất chi tiết"""
-        total = len(numbers)
-        counter = Counter(numbers)
-        basic_prob = {num: count/total for num, count in counter.items()}
-
-        # Tính xác suất có điều kiện
-        conditional_prob = defaultdict(dict)
-        for i in range(len(numbers)-1):
-            current = numbers[i]
-            next_num = numbers[i+1]
-            if current not in conditional_prob:
-                conditional_prob[current] = defaultdict(int)
-            conditional_prob[current][next_num] += 1
-
-        # Chuẩn hóa xác suất có điều kiện
-        for current in conditional_prob:
-            total = sum(conditional_prob[current].values())
-            for next_num in conditional_prob[current]:
-                conditional_prob[current][next_num] /= total
-
-        return {
-            'basic_probability': basic_prob,
-            'conditional_probability': dict(conditional_prob)
-        }
-
-    def statistical_analysis(self, numbers):
-        """2. Phân tích thống kê nâng cao"""
-        analysis = {
-            'descriptive_stats': pd.Series(numbers).describe().to_dict(),
-            'quartiles': {
-                'Q1': np.percentile(numbers, 25),
-                'Q2': np.percentile(numbers, 50),
-                'Q3': np.percentile(numbers, 75),
-                'IQR': np.percentile(numbers, 75) - np.percentile(numbers, 25)
-            },
-            'distribution_tests': {
-                'normality': stats.normaltest(numbers),
-                'uniformity': stats.kstest(numbers, 'uniform')
-            },
-            'trend_analysis': self.analyze_trend(numbers)
-        }
-        return analysis
-
-    def analyze_trend(self, numbers):
-        """Phân tích xu hướng"""
-        diff = np.diff(numbers)
-        return {
-            'trend_direction': 'increasing' if np.mean(diff) > 0 else 'decreasing',
-            'trend_strength': abs(np.mean(diff)),
-            'volatility': np.std(diff),
-            'momentum': sum(1 for x in diff if x > 0) / len(diff)
-        }
-
-    def machine_learning_prediction(self, numbers):
-        """3. Dự đoán máy học nâng cao"""
-        if len(numbers) < 10:
+           model_kmeans.fit(reshaped_history)   # trains kmeans data model, returns or error skips,
+        except ValueError:  
             return None
 
-        # Chuẩn bị data
-        X = np.array([numbers[i:i+5] for i in range(len(numbers)-5)])
-        y = np.array(numbers[5:])
 
-        # Train multiple models
-        predictions = {}
-        for name, model in self.models.items():
-            model.fit(X, y)
-            pred = model.predict([numbers[-5:]])[0]
-            predictions[name] = pred
+        last_five = le.transform(history[-5:]) #encode using last results of historic
+        last_five = last_five.reshape(1, -1) #reshape results
+      
+        if(model_kmeans.predict(last_five[0].reshape(-1,1))[0] == 0 ):  #predict value is group 0
 
-        # Ensemble prediction
-        ensemble_pred = np.mean(list(predictions.values()))
+            counter = Counter(history[-5:]) #checking frequencies of the given cluster group values for results t or x
 
-        return {
-            'individual_predictions': predictions,
-            'ensemble_prediction': ensemble_pred,
-            'confidence': self.calculate_prediction_confidence(predictions)
-        }
+            if counter["t"] > counter["x"]: #more of one , use the output based from which appear most frequent
+              return 't'
+            else: 
+              return "x"
+        elif(model_kmeans.predict(last_five[0].reshape(-1,1))[0] == 1):# same predict as in cluster number = 1, other wise will be handled down streams 
+           if history[-1]=='t':  # use opposite (based by historical info).
+               return 'x'
+           else :
+                return 't' #same principle if last value does appear ( it will swap or choose the oppisite label as final result based on clusters output ).
 
-    def calculate_prediction_confidence(self, predictions):
-        """Tính độ tin cậy của dự đoán"""
-        values = list(predictions.values())
-        return {
-            'std_dev': np.std(values),
-            'range': max(values) - min(values),
-            'confidence_score': 1 / (1 + np.std(values))
-        }
+#---- Pattern Detections ----
+def analyze_real_data(history):
+ 
+    if len(history) < 3:  # if low result size ignore / or early exists by condition ( if small ).
+        return None
+    
+    if all(item == history[0] for item in history):# same result through
+        return history[0] #returns what the series appears as final result
 
-    def pattern_analysis(self, numbers):
-        """6. Phân tích mẫu nâng cao"""
-        patterns = {
-            'sequences': self.find_sequences(numbers),
-            'repeating_patterns': self.find_repeating_patterns(numbers),
-            'cycle_analysis': self.analyze_cycles(numbers)
-        }
-        return patterns
+    if all(history[i] != history[i + 1] for i in range(len(history) - 1)):#sequence t then x.. t then x and reverse with t-> x ,  or  x -> t based in this approach as oppposite.
+        return "t" if history[-1] == "x" else "x"
 
-    def find_sequences(self, numbers):
-        """Tìm các chuỗi số"""
-        sequences = []
-        current_seq = [numbers[0]]
-
-        for i in range(1, len(numbers)):
-            if numbers[i] == numbers[i-1] + 1:
-                current_seq.append(numbers[i])
-            else:
-                if len(current_seq) > 1:
-                    sequences.append(current_seq)
-                current_seq = [numbers[i]]
-
-        return sequences
-
-    def find_repeating_patterns(self, numbers):
-        """Tìm mẫu lặp lại"""
-        patterns = {}
-        for length in range(2, 6):
-            for i in range(len(numbers) - length):
-                pattern = tuple(numbers[i:i+length])
-                if pattern in patterns:
-                    patterns[pattern] += 1
-                else:
-                    patterns[pattern] = 1
-
-        return dict(sorted(patterns.items(), key=lambda x: x[1], reverse=True)[:5])
-
-    def analyze_cycles(self, numbers):
-        """Phân tích chu kỳ"""
-        fft = np.fft.fft(numbers)
-        frequencies = np.fft.fftfreq(len(numbers))
-        dominant_cycles = sorted([(abs(fft[i]), 1/abs(freq))
-                                for i, freq in enumerate(frequencies)
-                                if freq > 0], reverse=True)[:3]
-        return dominant_cycles
-
-    def evolutionary_algorithm(self, numbers):
-        """9. Thuật toán tiến hóa nâng cao"""
-        class Individual:
-            def __init__(self, genes):
-                self.genes = genes
-                self.fitness = 0
-
-            def calculate_fitness(self, target):
-                self.fitness = -abs(sum(self.genes) - target)
-                return self.fitness
-
-        class Population:
-            def __init__(self, size, gene_length):
-                self.individuals = [Individual(np.random.randint(0, 10, gene_length))
-                                  for _ in range(size)]
-
-            def evolve(self, generations, target):
-                for gen in range(generations):
-                    # Tính fitness
-                    for ind in self.individuals:
-                        ind.calculate_fitness(target)
-
-                    # Sắp xếp theo fitness
-                    self.individuals.sort(key=lambda x: x.fitness, reverse=True)
-
-                    # Chọn lọc
-                    next_gen = self.individuals[:len(self.individuals)//2]
-
-                    # Lai ghép
-                    while len(next_gen) < len(self.individuals):
-                        parent1, parent2 = np.random.choice(next_gen, 2)
-                        crossover_point = np.random.randint(0, len(parent1.genes))
-                        child_genes = np.concatenate([parent1.genes[:crossover_point],
-                                                    parent2.genes[crossover_point:]])
-                        next_gen.append(Individual(child_genes))
-
-                    # Đột biến
-                    for ind in next_gen[1:]:
-                        if np.random.random() < 0.1:
-                            mutation_point = np.random.randint(0, len(ind.genes))
-                            ind.genes[mutation_point] = np.random.randint(0, 10)
-
-                    self.individuals = next_gen
-
-                return self.individuals[0]
-
-        # Sử dụng thuật toán tiến hóa
-        target_sum = sum(numbers[-5:])
-        pop = Population(size=50, gene_length=5)
-        best_individual = pop.evolve(generations=100, target=target_sum)
-
-        return {
-            'predicted_sequence': best_individual.genes.tolist(),
-            'fitness': best_individual.fitness,
-            'target_sum': target_sum
-        }
-
-    def opportunity_analysis(self, numbers):
-        """10. Phân tích cơ hội nâng cao"""
-        analysis = {
-            'current_trend': self.analyze_current_trend(numbers),
-            'momentum_indicators': self.calculate_momentum(numbers),
-            'volatility_analysis': self.analyze_volatility(numbers),
-            'opportunity_score': self.calculate_opportunity_score(numbers)
-        }
-        return analysis
-
-    def analyze_current_trend(self, numbers):
-        """Phân tích xu hướng hiện tại"""
-        if len(numbers) < 2:
-            return None
-
-        recent_numbers = numbers[-10:]
-        trend = {
-            'direction': 'up' if recent_numbers[-1] > recent_numbers[0] else 'down',
-            'strength': abs(recent_numbers[-1] - recent_numbers[0]),
-            'consistency': sum(1 for i in range(1, len(recent_numbers))
-                             if (recent_numbers[i] - recent_numbers[i-1] > 0) ==
-                                (recent_numbers[-1] > recent_numbers[0])) / (len(recent_numbers)-1)
-        }
-        return trend
-
-    def calculate_momentum(self, numbers):
-        """Tính momentum"""
-        return {
-            'roc': (numbers[-1] - numbers[0]) / numbers[0] if numbers[0] != 0 else 0,
-            'acceleration': np.diff(np.diff(numbers)).mean(),
-            'moving_average': pd.Series(numbers).rolling(window=5).mean().iloc[-1]
-        }
-
-    def analyze_volatility(self, numbers):
-        """Phân tích biến động"""
-        returns = np.diff(numbers) / numbers[:-1]
-        return {
-            'historical_volatility': np.std(returns) * np.sqrt(252),
-            'average_true_range': sum(abs(high - low)
-                                    for high, low in zip(numbers[1:], numbers[:-1])) / (len(numbers)-1)
-        }
-
-    def calculate_opportunity_score(self, numbers):
-        """Tính điểm cơ hội"""
-        trend = self.analyze_current_trend(numbers)
-        momentum = self.calculate_momentum(numbers)
-        volatility = self.analyze_volatility(numbers)
-
-        score = 0
-        if trend['direction'] == 'up':
-            score += trend['strength'] * trend['consistency']
-        score += momentum['roc'] * 100
-        score -= volatility['historical_volatility']
-
-        return max(min(score, 100), 0)  # Normalize to 0-100
+    return None   # defaults to null if conditions above fail
 
 
-def main():
-    """Main entry point for the bot"""
-    global application
-    bot_token = os.environ.get("BOT_TOKEN")  # Get the bot token from environment variable
-    if not bot_token:
-       logging.error("Bot token not found. Make sure to set the BOT_TOKEN environment variable.")
-       return
 
-    predictor = GamePredictor(bot_token)
-    application = predictor.application # set the application globally
+#----Deterministic Rules---
+def deterministic_algorithm(history):
 
-    # Add command handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help))
-    application.add_handler(CommandHandler("url", handle_url))
-    application.add_handler(CommandHandler("predict", handle_prediction))
-    application.add_handler(CommandHandler("tx", handle_tx))
-    application.add_handler(CommandHandler("stats", handle_stats))
-    application.add_handler(CommandHandler("history", handle_history))
+    if len(history) < 4 : # if lower then condition
+       return None
+
+    if history[-1] == history[-2] == history[-3] and history[-1] == 't':
+        return 'x' #if appear 't' then return the next as the inverse which 'x'.
+
+    if history[-1] == history[-2] == history[-3] and history[-1] == 'x': #Same as if last results return the x or "opposite output for those sequences
+         return 't' #same if appears x return "t" or  reverse.
+
+    if history[-1] != history[-2] and history[-2] != history[-3] and history[-3] != history[-4]:  # check that diff pattern and swap value depending by pattern
+         return "t" if history[-1] == "x" else "x"
+
+    return None #return Nulls if fail checks
 
 
-    logging.info("Bot is starting...")  # Notify that the bot is starting
-    predictor.start_bot()  # Start the bot
-    logging.info("Bot has started successfully.")
+# ------ Reinforcement logic here -----------
 
+def adjust_strategy_weights(feedback, strategy): #adjusting strategy
+    global strategy_weights
+    weight_change = feedback_weights.get(feedback, 0.0)  #gets result
+    strategy_weights[strategy] += weight_change * strategy_weights[strategy] * 0.2  #update with percentage ( it also takes strategy output weight).
+
+    strategy_weights[strategy] = min(max(strategy_weights[strategy], 0.1), 2.0)  #ensuring within range so values aren't crazy/
+    #clamp weight to range to prevent extreme predictions on the strategy values
+    return strategy_weights
+#--------Core Prediction Strategy ------
+def combined_prediction(history):
+     global last_prediction
+     strategy= None # strategy default
+
+
+     # 1- Applying deterministic strategy with historical analysis.
+
+     algo_prediction = deterministic_algorithm(history)
+
+     if algo_prediction: #returns with a strategy name with each approach ( so the Reinforcement knows which method is applied).
+
+           strategy = "deterministic"
+           last_prediction.update({'strategy':strategy ,'result':algo_prediction  })
+
+           return  algo_prediction
+
+      # 2- Clusters
+     cluster_prediction= cluster_analysis(history)
+
+     if cluster_prediction :  # Same cluster method to get data output and returns  model and prediction strategy so RL engine/reinforcments
+            strategy= "cluster"
+            last_prediction.update({'strategy':strategy , 'result':cluster_prediction})
+            return  cluster_prediction
+    
+
+   #3  machine Learning for any patterns not picked from above layers of deterministic approach
+
+     ml_pred = ml_prediction(history)
+
+     if ml_pred:
+
+        strategy="machine_learning"
+        last_prediction.update( { 'strategy': strategy,'result' : ml_pred}) # same principles (set what is currently using with prediction,  and the output method result  , for later adjustments in other logic functions
+        return  ml_pred
+
+
+
+    #4   Using  probability threshold ( from math/probalistic outputs methods using past sequences.  )
+
+     probability_dict=calculate_probabilities(history) # if we do return based probability as preference
+
+     probability_pred =  apply_probability_threshold(probability_dict) #try from methods for value using treshold if have results
+
+     if(probability_pred) :
+           strategy= "probability"
+
+           last_prediction.update({'strategy':strategy,'result': probability_pred})
+
+           return  probability_pred
+
+
+     #5  Series/ Streak analysis with history patterns to see any known approach, use existing dataset  if methods dont have data.. or fail cases from others models
+
+     streak_prediction = analyze_real_data(history)
+     if streak_prediction:
+           strategy = "streak"
+
+           last_prediction.update({'strategy':strategy, 'result':streak_prediction })
+
+           return  streak_prediction
+ 
+      #5 If  all  methods above do fail, returns from the most basic and least performance approach .  as final prediction mechanism for output (using history patterns weighted bias approach as basic algorithm  output) .
+     strategy="statistical"
+     last_prediction.update({'strategy':strategy,'result': statistical_prediction(history, 0.25)})# default to random stat with historical bias.
+
+     return statistical_prediction(history, 0.25)  # finally by return a statistical based bias random choice method
+
+
+# -------- Bot Handlers---------
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(f"Chào mừng bạn đến với {BOT_NAME} bot!\n"
+        "Sử dụng /tx để dự đoán, /add để thêm kết quả.\n"
+        "Nhập /help để xem hướng dẫn, /history to view history, or /chart to check result pattern, use /logchart for disk backup of patterns.\n",parse_mode = ParseMode.MARKDOWN)
+
+# /tx command
+async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+        try:
+            user_input = ' '.join(context.args) # get args
+
+            if not user_input: #handle null args / skip early exists if user do not give arguments for the logic.
+               await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu)!")
+               return
+
+            history = user_input.split()# transform using user input .
+            if not all(item in ["t", "x"] for item in history): # check input sequence must include 'x' or 't' others are skipped and ask for more valid set
+
+                 await update.message.reply_text("Dãy lịch sử chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
+
+                 return #Early skips.. return default errors
+        
+            history_data.extend(history)#using current sequence.
+
+
+
+            #only save data set to train with more 5+ , prevent less-performant logic due params.
+            if len(history) >= 5:
+                  train_data.append(list(history_data))
+                  train_labels.append(history[-1]) # saving by last result ( that models use ).
+
+            train_all_models()
+
+            # get result
+            result = combined_prediction(list(history_data))
+            last_prediction["model"] = BOT_NAME
+            #add user controls/ feedback mechanism, after a single prediction has made
+            keyboard = [
+                [InlineKeyboardButton("Đúng", callback_data='correct')],
+                [InlineKeyboardButton("Sai", callback_data='incorrect')]
+             ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            #result and style for messages, after the full process have finish and feedback button are availible
+            formatted_result=f"Kết quả dự đoán của {BOT_NAME} : *{'Tài' if result == 't' else 'Xỉu'}* "
+            await update.message.reply_text( formatted_result,reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN) # using result by current set
+
+        except Exception as e:  #general errors during command usage to capture exceptions from any place inside this method/functions
+             await update.message.reply_text(f"Lỗi: {e}")
+
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+     """ Handler of adding information in case some additional parameters were not used and users like to add results"""
+     try:
+
+            user_input = ' '.join(context.args) # get args
+
+            if not user_input:
+                   await update.message.reply_text("Vui lòng nhập kết quả thực tế (t: Tài, x: Xỉu)!")
+                   return #Early exits to ignore and return errors, otherwise rest will throw more problems..
+            new_data = user_input.split()
+            if not all(item in ["t", "x"] for item in new_data): # check only parameters we support ( others return and report error and stop).
+                await update.message.reply_text("Kết quả chỉ được chứa 't' (Tài) và 'x' (Xỉu).")
+                return
+           
+            history_data.extend(new_data)# append from current to data set.
+
+
+            #only train  models with some valid values on user dataset
+            for i in range(len(new_data) - 5 + 1):
+                   train_data.append(list(history_data))#adding user train-sets for machine learning, every single data after offset 5th value is added.
+                   train_labels.append(new_data[i + 4])
+
+            train_all_models() # if dataset ready do train data.
+            await update.message.reply_text(f"Dữ liệu thực tế đã được cập nhật: {new_data}") # message update info after command processing complete, by each iteration
+
+     except Exception as e:# catch general issues
+       await update.message.reply_text(f"Lỗi : {e}")
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    feedback = query.data
+    global  user_feedback_history # access values
+    if last_prediction.get("strategy") is None or last_prediction.get('result') is None or  last_prediction.get('model')  is None :
+
+       await query.edit_message_text("Không thể ghi nhận đánh giá, vì dự đoán không tồn tại, vui lòng thử lại sau.")
+       return  #return as result do no exits yet.
+    if feedback == 'correct':
+       user_feedback_history.append({'result' : last_prediction['result'], 'strategy':last_prediction['strategy'],  'feedback':'correct', 'timestamp' : time.time() })
+
+       save_user_feedback('correct')  #database
+       await query.edit_message_text("Cảm ơn bạn! Đánh giá được ghi nhận.")
+    elif feedback == 'incorrect':
+        user_feedback_history.append({'result' : last_prediction['result'], 'strategy':last_prediction['strategy'],  'feedback':'incorrect'  ,'timestamp': time.time() })# append a history of feedback of each request for training adjustments for reinforcement learning.
+        save_user_feedback('incorrect')
+        await query.edit_message_text("Cảm ơn bạn! Tôi sẽ cố gắng cải thiện hơn nữa!")
+   
+    #Adjust weights strategy using a user feedback approach ( correct -> boost value or reduce for wrong , same goes for the opposite for other categories of feedback).
+
+    adjust_strategy_weights(feedback, last_prediction["strategy"] )
+
+
+async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not history_data: # check for  value sizes
+        await update.message.reply_text("Chưa có dữ liệu lịch sử.") #early exits and skip
+    else:
+
+       await update.message.reply_text(f"Lịch sử: {' '.join(history_data)}")#otherwise get/show the last known record for dataset.
+
+
+# helper for chart display ( by bot messages / text message handler).
+async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ /Chart output , bot responses """
+    chart_image= generate_history_chart(history_data)  # generate image
+    if chart_image is None:
+       await update.message.reply_text("Không có dữ liệu lịch sử nào để hiển thị biểu đồ.")# return error for no dataset exists in method return a fail ( null values or small).
+
+       return #early skip
+    await update.message.reply_photo(photo=chart_image,caption='Historical Result Pattern') # showing to the user from the response in a single bot message (by image method support).
+# helper for storing current history image in server's current folder by current date
+async def logchart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    """save current history to local filesystem to monitor """
+    save_current_history_image()
+    await update.message.reply_text("Đã lưu chart ở Server.")
+
+
+# /help output. for display
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+     await update.message.reply_text(
+        f"Hướng dẫn sử dụng bot *{BOT_NAME}*:\n"
+        "/tx [dãy lịch sử]: Dự đoán kết quả Tài/Xỉu.\n"
+        "/add [kết quả]: Cập nhật kết quả thực tế.\n"
+        "/history : Xem lịch sử gần đây.\n"
+        "/chart : Check lịch sử chart ( đồ thị dữ liệu).\n"
+         "/logchart : Lưu trữ lịch sử đồ thị vào Server .\n"
+
+        "Ví dụ:\n"
+        "- /tx t t x t x\n"
+        "- /add t x x t t",parse_mode=ParseMode.MARKDOWN ) #using bot by methods support output style.
+
+# ---------- bot setup main method to invoke --------
 if __name__ == "__main__":
-    main()
+   create_feedback_table() # make database.
+
+   load_data_state()#Load State from previous use
+
+   app = ApplicationBuilder().token(TOKEN).build() # start the telegram framework
+
+   #Commands bind to those methods handlers
+   app.add_handler(CommandHandler("start", start))
+   app.add_handler(CommandHandler("tx", tx))
+   app.add_handler(CommandHandler("add", add))
+   app.add_handler(CommandHandler("history", history))
+   app.add_handler(CommandHandler("help", help_command))
+   app.add_handler(CommandHandler("chart", chart))
+   app.add_handler(CommandHandler("logchart",logchart ))
+
+
+   app.add_handler(CallbackQueryHandler(button))  # add feedback handler using a button call in chat system.
+   print("Bot starting , waiting...") # Bot startup messages before starting (logging the boot messages ).
+
+   app.run_polling() #using polling
+   save_data_state()# when close saves current states as local data-state for next boot cycle using the data state ( as file.json).
+
+   print("Bot exiting with code = 0.")  #Exit Log message , once stop function in terminal ( or any shutdown)
