@@ -2,7 +2,7 @@ import os
 os.system("pip install scikit-learn")
 import random
 import numpy as np
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from collections import Counter, deque
 from sklearn.linear_model import LogisticRegression
@@ -20,7 +20,6 @@ train_data = []  # Lịch sử để huấn luyện
 train_labels = []
 le = LabelEncoder()
 model = LogisticRegression()
-update_model(feedback, model, new_data)
 
 def train_model():
     """
@@ -90,61 +89,6 @@ def combined_prediction(history):
     # Dự đoán bằng Machine Learning
     return ml_prediction(history)
 
-# Hàm sử dụng K-means để nhận diện các nhóm cầu
-def kmeans_clustering(history_data, n_clusters=3):
-    """
-    Hàm sử dụng K-means để phân nhóm các cầu trong dữ liệu lịch sử.
-    history_data: Dữ liệu lịch sử đã được chuyển thành dạng số (0: Xỉu, 1: Tài).
-    n_clusters: Số lượng nhóm cần phân chia.
-    """
-    kmeans = KMeans(n_clusters=n_clusters)
-    kmeans.fit(history_data)
-    return kmeans
-
-# Phân loại dữ liệu lịch sử vào các nhóm
-def predict_cluster(kmeans, new_data):
-    """
-    Dự đoán nhóm cho dữ liệu mới bằng K-means.
-    kmeans: Mô hình K-means đã huấn luyện.
-    new_data: Dữ liệu mới cần phân loại (đã được chuyển thành dạng số).
-    """
-    return kmeans.predict([new_data])  # Dự đoán nhóm cho một chuỗi mới
-
-# Cập nhật mô hình học máy sau mỗi lần dự đoán (cải thiện mô hình liên tục)
-def update_model(feedback, model, new_data):
-    """
-    Cập nhật mô hình sau khi có phản hồi từ người dùng (correct hoặc incorrect).
-    feedback: Phản hồi từ người dùng, "correct" hoặc "incorrect".
-    model: Mô hình học máy (mạng neural).
-    new_data: Dữ liệu mới (bao gồm X và y).
-    """
-    if feedback == "correct":
-        # Nếu đúng, mô hình tiếp tục huấn luyện
-        model.fit(new_data['X'], new_data['y'], epochs=1, batch_size=32)
-        print("Mô hình đã được cập nhật.")
-    elif feedback == "incorrect":
-        # Nếu sai, mô hình cải thiện bằng cách học lại
-        model.fit(new_data['X'], new_data['y'], epochs=1, batch_size=32)
-        print("Mô hình đã cải thiện.")
-
-# Phát hiện và dự đoán kết quả dựa trên mô hình K-means và Mạng Neural
-def detect_and_predict(history_data, new_data, kmeans, neural_network_model):
-    """
-    Phát hiện nhóm cầu từ dữ liệu lịch sử và dự đoán kết quả (Tài/Xỉu).
-    history_data: Dữ liệu lịch sử để huấn luyện K-means (dạng số).
-    new_data: Dữ liệu mới để phân loại và dự đoán.
-    kmeans: Mô hình K-means đã huấn luyện.
-    neural_network_model: Mô hình học máy (mạng neural).
-    """
-    # Sử dụng K-means để nhận diện nhóm cầu
-    cluster_label = predict_cluster(kmeans, new_data)
-
-    # Sử dụng mô hình neural network để dự đoán kết quả (Tài/Xỉu)
-    prediction = neural_network_model.predict([new_data])
-    prediction_result = 'Tài' if prediction[0] > 0.5 else 'Xỉu'
-
-    return cluster_label, prediction_result
-
 # Lệnh /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -153,6 +97,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Nhập /help để biết thêm thông tin chi tiết."
     )
 
+def update_model(feedback, model, new_data):
+    """
+    Cập nhật mô hình sau mỗi lần dự đoán (cải thiện mô hình liên tục).
+    """
+    if feedback == "correct":
+        model.fit(new_data['X'], new_data['y'], epochs=1, batch_size=32)
+        print("Mô hình đã được cập nhật.")
+    elif feedback == "incorrect":
+        model.fit(new_data['X'], new_data['y'], epochs=1, batch_size=32)
+        print("Mô hình đã cải thiện.")
+        
 # Lệnh /tx
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -244,7 +199,44 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif feedback == 'incorrect':
         # Nếu sai, cập nhật lại dữ liệu huấn luyện và cải thiện mô hình
         await query.edit_message_text("Cảm ơn bạn! Tôi sẽ cải thiện mô hình để dự đoán chính xác hơn.")
-        
+    
+def kmeans_clustering(history_data, n_clusters=3):
+    """
+    Hàm sử dụng K-means để phân nhóm các cầu trong dữ liệu lịch sử.
+    history_data: Dữ liệu lịch sử đã được chuyển thành dạng số (0: Xỉu, 1: Tài).
+    n_clusters: Số lượng nhóm cần phân chia.
+    """
+    kmeans = KMeans(n_clusters=n_clusters)
+    kmeans.fit(history_data)
+    return kmeans
+
+# Phân loại dữ liệu lịch sử vào các nhóm
+def predict_cluster(kmeans, new_data):
+    """
+    Dự đoán nhóm cho dữ liệu mới bằng K-means.
+    kmeans: Mô hình K-means đã huấn luyện.
+    new_data: Dữ liệu mới cần phân loại (đã được chuyển thành dạng số).
+    """
+    return kmeans.predict([new_data])  # Dự đoán nhóm cho một chuỗi mới
+
+# Phát hiện và dự đoán kết quả dựa trên mô hình K-means và Mạng Neural
+def detect_and_predict(history_data, new_data, kmeans, neural_network_model):
+    """
+    Phát hiện nhóm cầu từ dữ liệu lịch sử và dự đoán kết quả (Tài/Xỉu).
+    history_data: Dữ liệu lịch sử để huấn luyện K-means (dạng số).
+    new_data: Dữ liệu mới để phân loại và dự đoán.
+    kmeans: Mô hình K-means đã huấn luyện.
+    neural_network_model: Mô hình học máy (mạng neural).
+    """
+    # Sử dụng K-means để nhận diện nhóm cầu
+    cluster_label = predict_cluster(kmeans, new_data)
+
+    # Sử dụng mô hình neural network để dự đoán kết quả (Tài/Xỉu)
+    prediction = neural_network_model.predict([new_data])
+    prediction_result = 'Tài' if prediction[0] > 0.5 else 'Xỉu'
+
+    return cluster_label, prediction_result
+    
 # Lệnh /history (xem lịch sử)
 async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not history_data:
