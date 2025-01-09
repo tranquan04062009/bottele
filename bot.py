@@ -72,7 +72,6 @@ def save_user_feedback(feedback):
     conn.commit()
     conn.close()
 
-
 def load_data_state():
     global strategy_weights, last_prediction, user_feedback_history, history_data
     if os.path.exists(DATA_PERSISTENT_PATH):
@@ -100,7 +99,6 @@ def save_data_state():
     except Exception as e:
         print(f"Lỗi khi lưu dữ liệu: {e}")
 
-
 def save_current_history_image():
     if not history_data:
         return
@@ -110,6 +108,7 @@ def save_current_history_image():
     with open(name, "wb") as file:
         file.write(chart_image.read())
     print(f"Đã lưu biểu đồ: {name}")
+
 
 def generate_history_chart(history):
     if not history:
@@ -141,7 +140,6 @@ def calculate_probabilities(history):
 
 def apply_probability_threshold(prob_dict, threshold_t=0.55, threshold_x=0.45):
     return "t" if prob_dict["t"] > threshold_t else "x" if prob_dict["x"] > threshold_x else None
-
 
 def statistical_prediction(history, bias=0.5):
     if not history:
@@ -180,35 +178,30 @@ def train_all_models():
     if len(X) > 1 and len(Y) > 1:
         X=np.array(X)
         Y=np.array(Y)
+
         for model in models_to_calibrate:
             try:
-
                 model.fit(X, Y)
                 calibrated_models[model] = model
             except ValueError:
                 pass
         model_svm.fit(X, Y)
         model_calibrated_svm.fit(X, Y)
-    
 
 def ml_prediction(history):
     if len(train_data) < 10:
         return statistical_prediction(history)
-
     features, label = prepare_data_for_models(history)
     if features is None:
         return None
-
     model_svm_prob = model_calibrated_svm.predict_proba(features)
     svm_prediction_label = model_calibrated_svm.predict(features)
-
     log_prob, log_label = _predict_probabilty(calibrated_models.get(model_logistic, model_logistic), features)
     sgd_prob, sgd_label = _predict_probabilty(calibrated_models.get(model_sgd, model_sgd), features)
     rf_prob, rf_label = _predict_probabilty(calibrated_models.get(model_rf, model_rf), features)
 
     tai_probabilities_average = []
     xiu_probabilities_average = []
-
     if not np.isnan(log_prob["t"]):
         tai_probabilities_average.append(log_prob["t"])
     if not np.isnan(sgd_prob["t"]):
@@ -224,7 +217,6 @@ def ml_prediction(history):
 
     average_prob_t = np.mean(tai_probabilities_average) if tai_probabilities_average else 0
     average_prob_x = np.mean(xiu_probabilities_average) if xiu_probabilities_average else 0
-
     avg_probabilty = {"t": average_prob_t, "x": average_prob_x}
     svm_label = le.inverse_transform(svm_prediction_label)[0]
 
@@ -232,8 +224,7 @@ def ml_prediction(history):
     if predicted_outcome:
         return predicted_outcome
     else:
-       return svm_label
-
+        return svm_label
 
 def _predict_probabilty(model, features):
     if hasattr(model, 'predict_proba'):
@@ -300,6 +291,7 @@ def adjust_strategy_weights(feedback, strategy):
     strategy_weights[strategy] = min(max(strategy_weights[strategy], 0.01), 2.0)
     return strategy_weights
 
+
 def combined_prediction(history):
     global last_prediction
     strategy = None
@@ -335,14 +327,37 @@ def combined_prediction(history):
     return statistical_prediction(history, 0.3)
 
 
+def calculate_training_status():
+        
+    total_predictions=len(user_feedback_history)
+
+    if total_predictions == 0 : # early exits, return zero of if empty (avoid / zero div exceptions ).
+
+         return { "status" : "Bot chưa có đủ dữ liệu.","accuracy" : 0 , "intelligence": 0  } 
+
+    correct_predictions = sum(1 for fb in user_feedback_history if fb['feedback'] == 'correct')
+    incorrect_predictions = total_predictions - correct_predictions
+    accuracy_percentage= (correct_predictions / total_predictions) * 100 if total_predictions > 0 else 0
+    intelligence_level= np.mean(list(strategy_weights.values())) * 25 if  strategy_weights else 0 # average the weights to a scalar representation
+   
+    status_report= {
+       "status": "Bot đang được huấn luyện.", # Status current training state
+        "accuracy":  accuracy_percentage ,  #Percentage score based on feedback and RL results of current set by users/bot
+         "intelligence" :  intelligence_level if  intelligence_level <=100 else 100 # Intelligence metrics/scaled based weights as a general approach on model output quality
+
+    } # format as dictionary
+
+    return status_report
+
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"Chào mừng bạn đến với {BOT_NAME}!\n"
         "Sử dụng /tx để dự đoán, /add để thêm kết quả.\n"
-        "Nhập /help để xem hướng dẫn, /history để xem lịch sử, /chart để xem biểu đồ hoặc /logchart để lưu biểu đồ.",
+        "Nhập /help để xem hướng dẫn, /history để xem lịch sử, /chart để xem biểu đồ hoặc /logchart để lưu biểu đồ,  /status  để xem trạng thái bot.",
         parse_mode=ParseMode.MARKDOWN
     )
-
 
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -367,11 +382,9 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         formatted_result = f"Kết quả dự đoán từ {BOT_NAME} : *{'Tài' if result == 't' else 'Xỉu'}* "
-        await update.message.reply_text(formatted_result,reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
-
+        await update.message.reply_text(formatted_result, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         await update.message.reply_text(f"Lỗi: {e}")
-
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -418,6 +431,7 @@ async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"Lịch sử gần đây: {' '.join(history_data)}")
 
+
 async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chart_image = generate_history_chart(history_data)
     if chart_image is None:
@@ -425,10 +439,10 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_photo(photo=chart_image, caption='Biểu đồ kết quả.')
 
-
 async def logchart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_current_history_image()
     await update.message.reply_text("Đã lưu biểu đồ vào máy chủ.")
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -438,9 +452,25 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/history : Xem lịch sử gần đây.\n"
         "/chart : Xem biểu đồ kết quả.\n"
         "/logchart : Lưu biểu đồ kết quả vào máy chủ.\n"
-         "Ví dụ:\n"
+         "/status : Xem trạng thái huấn luyện và độ chính xác bot.\n"
+        "Ví dụ:\n"
         "- /tx t t x t x\n"
         "- /add t x x t t", parse_mode=ParseMode.MARKDOWN)
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+     training_report =  calculate_training_status()
+
+     formatted_message = (
+        f"🤖 Trạng thái *{BOT_NAME}*:\n\n"
+        f"   📊 Tình trạng: {training_report['status']}\n"
+        f"   ✅ Độ chính xác: *{training_report['accuracy']:.2f}%*\n"
+        f"   🧠 Mức độ thông minh: *{training_report['intelligence']:.2f}/100*\n"
+      
+      )  #using F string format with inline variable from calculations result.
+
+     await update.message.reply_text(formatted_message,parse_mode = ParseMode.MARKDOWN)
+
 
 
 if __name__ == "__main__":
@@ -454,6 +484,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("chart", chart))
     app.add_handler(CommandHandler("logchart", logchart))
+    app.add_handler(CommandHandler("status", status))
     app.add_handler(CallbackQueryHandler(button))
     print("Bot đang hoạt động...")
     app.run_polling()
