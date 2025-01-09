@@ -477,5 +477,5 @@ Các lệnh có sẵn:
             self.bot.reply_to(message, "Có lỗi xảy ra trong quá trình dự đoán.")
 
 if __name__ == "__main__":
-    predictor = GamePredictor("YOUR_BOT_TOKEN")
+    predictor = GamePredictor("7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0")
     predictor.start()
