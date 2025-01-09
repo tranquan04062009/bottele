@@ -26,6 +26,7 @@ if not TOKEN:
 BOT_NAME = "👑 Bot Tài Xỉu Pro 👑"
 DATABASE_NAME = "tx_feedback.db"
 DATA_PERSISTENT_PATH = "bot_data.json"
+HISTORY_DATA_PATH = "cau.json"
 
 history_data = deque(maxlen=600)
 train_data = []
@@ -41,19 +42,18 @@ user_feedback_history = deque(maxlen=1000)
 sentimental_analysis= {}
 
 
-model_logistic = LogisticRegression(random_state=42, solver='liblinear',C = 1.1 , penalty = "l1") #Linear Models (C= parameter to force robust for linear models
-model_svm = SVC(kernel='linear', probability=True, random_state=42 , C=1.4) #support Vector
-model_sgd = SGDClassifier(loss='log_loss', random_state=42 , alpha=0.01) #Gradident with Learning params
-model_rf = RandomForestClassifier(random_state=42 ,n_estimators=150,max_depth = 9 ,min_samples_split = 2 )  # Random Tree
-model_gb = GradientBoostingClassifier(n_estimators=110, learning_rate=0.1 , max_depth= 6, random_state=42,subsample=0.9) # boost tree
-model_nb = GaussianNB()  # Naive based classifer 
+model_logistic = LogisticRegression(random_state=42, solver='liblinear',C = 1.1 , penalty = "l1")
+model_svm = SVC(kernel='linear', probability=True, random_state=42 , C=1.4)
+model_sgd = SGDClassifier(loss='log_loss', random_state=42 , alpha=0.01)
+model_rf = RandomForestClassifier(random_state=42 ,n_estimators=150,max_depth = 9 ,min_samples_split = 2 )
+model_gb = GradientBoostingClassifier(n_estimators=110, learning_rate=0.1 , max_depth= 6, random_state=42,subsample=0.9)
+model_nb = GaussianNB()
 
-model_calibrated_svm = CalibratedClassifierCV(model_svm, method='isotonic', cv=5) # Calibration Model  parameter , uses SVM.
+
+model_calibrated_svm = CalibratedClassifierCV(model_svm, method='isotonic', cv=5)
 model_kmeans = KMeans(n_clusters=2, n_init=10, random_state=42)
-models_to_calibrate = [model_logistic, model_sgd, model_rf, model_gb] # new method boosting added as model for train and predict and adjust strategy based feedback as part of its weight and influence / probability parameter when doing results
-
+models_to_calibrate = [model_logistic, model_sgd, model_rf, model_gb]
 calibrated_models = {}
-
 
 def create_feedback_table():
     conn = sqlite3.connect(DATABASE_NAME)
@@ -78,8 +78,26 @@ def save_user_feedback(feedback):
        print("database exception during user saving on Feedback ",e)
     finally :
         conn.close()
+def load_cau_data():
+  global history_data
+  if os.path.exists(HISTORY_DATA_PATH):
+        try:
+           with open(HISTORY_DATA_PATH, 'r') as f:
+               loaded_data = json.load(f)
+               history_data = deque(loaded_data, maxlen=600)
 
+               print("Đã tải dữ liệu cầu từ file.")
+        except Exception as e:
+              print(f"Could not open file for cau data:  {e}")
 
+def save_cau_data():
+   global history_data
+   try:
+     with open(HISTORY_DATA_PATH, 'w') as f:
+            json.dump(list(history_data), f)
+            print("Đã lưu dữ liệu cầu vào file cau.json.")
+   except Exception as e :
+       print(f"Could not save file for cau data  {e}")
 def load_data_state():
     global strategy_weights, last_prediction, user_feedback_history, history_data, calibrated_models, train_data, train_labels , sentimental_analysis
     if os.path.exists(DATA_PERSISTENT_PATH):
@@ -93,42 +111,13 @@ def load_data_state():
 
                train_data = loaded_data.get("train_data", [])
                train_labels = loaded_data.get("train_labels", [])
-               calibrated_models = loaded_data.get("calibrated_models",calibrated_models ) #store trained methods values/ state
-               sentimental_analysis=loaded_data.get ("sentimental_analysis", sentimental_analysis) # data used during a new ML process with series as time, (new implementation)
+               calibrated_models = loaded_data.get("calibrated_models",calibrated_models )
+               sentimental_analysis=loaded_data.get ("sentimental_analysis", sentimental_analysis)
                print("Đã tải dữ liệu trạng thái từ file.")
          except Exception as e:
              print(f"Could not open file  {e}")
 
 
-def save_data_state():
-    global strategy_weights, last_prediction, user_feedback_history, history_data, calibrated_models , train_data , train_labels , sentimental_analysis
-    data = {
-         "strategy_weights": strategy_weights,
-         "last_prediction": last_prediction,
-          "user_feedback_history": list(user_feedback_history),
-          "history_data": list(history_data),
-          "train_data": train_data,
-         "train_labels": train_labels,
-          "calibrated_models": calibrated_models,
-           "sentimental_analysis" : sentimental_analysis
-        
-    }
-    try:
-        with open(DATA_PERSISTENT_PATH, 'w') as f:
-            json.dump(data, f)
-            print("Đã lưu dữ liệu trạng thái vào file.")
-    except Exception as e:
-           print(f"Lỗi khi lưu dữ liệu: {e}")
-    
-def save_current_history_image():
-    if not history_data:
-        return
-    chart_image = generate_history_chart(history_data)
-    ts = time.time()
-    name = f"chart_tx_{ts}.png"
-    with open(name, "wb") as file:
-        file.write(chart_image.read())
-    print(f"Đã lưu biểu đồ: {name}")
 
 def generate_history_chart(history):
     if not history:
@@ -174,19 +163,18 @@ def statistical_prediction(history, bias=0.5):
          prob_xiu * (1 + bias) / 2) else random.choice(["t", "x"])
 
 def prepare_data_for_models(history):
-    if len(history) < 10:  #at least  ten history samples
+    if len(history) < 10:
           return None, None
 
-    encoded_history = le.fit_transform(history[-10:]) # Using now,  10 last values
+    encoded_history = le.fit_transform(history[-10:])
     features = np.array([encoded_history],dtype=np.float64 )
-    features_poly= poly.fit_transform(features) #polynomial analysis 
-
-    X = scaler.fit_transform(features_poly) #scale with non linear behaviours and proper parameters by transformation method before scaling, now after fitting is use more strong features by new type transforms with poly().
-
+    features_poly= poly.fit_transform(features)
+    X = scaler.fit_transform(features_poly)
     labels = le.transform([history[-1]])
-    y = np.array(labels ,dtype = np.int64)  # int format for model label output ( class ) value as numeric dataset
+    y = np.array(labels ,dtype = np.int64)
 
-    return X, y  # returns properly transformed dataset of current scope ( no type corruption by mixed datasets is allow via python).
+    return X, y
+
 
 
 def train_all_models():
@@ -196,7 +184,7 @@ def train_all_models():
      for history in train_data:
         features, label = prepare_data_for_models(history)
         if features is not None and label is not None:
-            X.append(features[0]) # append transformed values via function parameters validations from pre processing steps (before was simply array values/ with possible errors and less robust transformations and less checks),
+            X.append(features[0])
             Y.append(label[0])
     
      if len(X) > 1 and len(Y) > 1 :
@@ -207,22 +195,22 @@ def train_all_models():
             for model in models_to_calibrate:
                try:
 
-                 model.fit(X, Y)  # fits the method based on a structured/ validated  pre -processing method parameter as helper (`prepare_data_for_models()` where input features has checks) that transforms or scale dataset and output value format before use in this step/method  of fitting
-                 calibrated_models[model] = model # store new models with parameters, which then will used during prediction/ probabilistic checks or other ML models, all within scope methods by local variables and by persistence method .
-               except ValueError as ve : # skipping any fit operation for models if fails during try. prevent crash and is recorded and skipping with no model persistency for those specific cases.
-                 print(f" model {model} error for data parameters : {ve}" )  # record for logs
+                 model.fit(X, Y)
+                 calibrated_models[model] = model
+               except ValueError as ve :
+                 print(f" model {model} error for data parameters : {ve}" )
                  pass
 
-            model_svm.fit(X, Y)   # all others models train , after the iteration and checks are passed to all pre fit call using model approach parameters, type format is always by valid type due that helper logic for preparation phase.
-            model_calibrated_svm.fit(X,Y)  # calibrate before the fit process and  reuse.
+            model_svm.fit(X, Y)
+            model_calibrated_svm.fit(X,Y)
+
 
 def ml_prediction(history):
-    if len(train_data) < 10: #Early exists skip with fallback using statistical when dataset  not at minimal parameter threshold
+    if len(train_data) < 10:
         return statistical_prediction(history)
-    features, label = prepare_data_for_models(history)  #data preparation ( all check from data / scale etc , using all helper validations to avoid corrupt model values that cannot be predict due dataset parameter size).
-    if features is None: # If  not returns from ` prepare_data_for_models` exit.
+    features, label = prepare_data_for_models(history)
+    if features is None:
        return None
-  
     model_svm_prob = model_calibrated_svm.predict_proba(features)
     svm_prediction_label = model_calibrated_svm.predict(features)
 
@@ -235,8 +223,8 @@ def ml_prediction(history):
     tai_probabilities_average = []
     xiu_probabilities_average = []
 
-    if not np.isnan(log_prob["t"]): tai_probabilities_average.append(log_prob["t"]) #  add if model returns any output
-    if not np.isnan(sgd_prob["t"]): tai_probabilities_average.append(sgd_prob["t"]) # and valid types (numberic , all  model are skipped before ) so valid type results can get add
+    if not np.isnan(log_prob["t"]): tai_probabilities_average.append(log_prob["t"])
+    if not np.isnan(sgd_prob["t"]): tai_probabilities_average.append(sgd_prob["t"])
     if not np.isnan(rf_prob["t"]):  tai_probabilities_average.append(rf_prob["t"])
     if not np.isnan(gb_prob["t"]):  tai_probabilities_average.append(gb_prob["t"])
 
@@ -252,27 +240,29 @@ def ml_prediction(history):
     avg_probabilty = {"t": average_prob_t, "x": average_prob_x}
     svm_label = le.inverse_transform(svm_prediction_label)[0]
   
-    predicted_outcome = apply_probability_threshold(avg_probabilty, 0.53, 0.47) #biased with testing result ( parameters for t and x output threshold ).
-
-    if predicted_outcome: # if  not NULL values with results , return as proper output.
+    predicted_outcome = apply_probability_threshold(avg_probabilty, 0.53, 0.47)
+    if predicted_outcome:
       return predicted_outcome
     else :
 
-     return svm_label  # if all model with proababilties failed or returns no data using last output model.
+     return svm_label
+
 
 def _predict_probabilty(model, features):
     if hasattr(model, 'predict_proba'):
           try:
               probs = model.predict_proba(features)[0]
-              labels = le.inverse_transform(model.predict(features)) #return method results/ label + probabilities to  combine  / mix using other ML approaches
+              labels = le.inverse_transform(model.predict(features))
               prob_dictionary = dict(zip(le.classes_, probs))
               return prob_dictionary, labels[0]
 
           except ValueError as ve :
-               print (f"Model issue with probability : {ve} for {model}") # if something is wrong with this, log error and retuurn defaults /skip so other process works as expectation.
+               print (f"Model issue with probability : {ve} for {model}")
 
                return {"t": float('NaN'), "x": float('NaN')}, None
-    return {"t": float('NaN'), "x": float('NaN')}, None # also skip for models or method where do not supports the `_predict_probabilty`.
+    return {"t": float('NaN'), "x": float('NaN')}, None
+
+
 
 def cluster_analysis(history):
     if len(history) < 5:
@@ -280,7 +270,7 @@ def cluster_analysis(history):
     encoded_history = le.fit_transform(history)
     reshaped_history = encoded_history.reshape(-1, 1)
     try:
-       model_kmeans.fit(reshaped_history) #kmeans using trained parameters based history sets
+       model_kmeans.fit(reshaped_history)
     except ValueError:
        return None
     last_five = le.transform(history[-5:])
@@ -316,57 +306,53 @@ def deterministic_algorithm(history):
        return "t" if history[-1] == "x" else "x"
     return None
 
-
 def adjust_strategy_weights(feedback, strategy):
     global strategy_weights
-    weight_change = feedback_weights.get(feedback, 0.0) # getting values or defaults values, when feedback from a strategy method happens.
+    weight_change = feedback_weights.get(feedback, 0.0)
     strategy_weights[strategy] += weight_change * strategy_weights[strategy] * 0.15
-    strategy_weights[strategy] = min(max(strategy_weights[strategy], 0.01), 2.0) # min / max to avoid crazy data type / numbers range from being outside valid limits on reinforcement by user.
-
+    strategy_weights[strategy] = min(max(strategy_weights[strategy], 0.01), 2.0)
     return strategy_weights
-
 
 def combined_prediction(history):
      global last_prediction
      strategy=None
-     algo_prediction = deterministic_algorithm(history) #  if exist , do this prediction if can
-     if algo_prediction: # set approach result / output of specific method strategy.
+     algo_prediction = deterministic_algorithm(history)
+     if algo_prediction:
           strategy = "deterministic"
-          last_prediction.update({'strategy': strategy, 'result': algo_prediction}) # save method parameters for the prediction
-          return  algo_prediction # and skips rest of calculation
+          last_prediction.update({'strategy': strategy, 'result': algo_prediction})
+          return  algo_prediction
 
      cluster_prediction= cluster_analysis(history)
-     if cluster_prediction:  # skip if has not a valid prediction approach of last clusters dataset parameter
+     if cluster_prediction:
             strategy= "cluster"
-            last_prediction.update({'strategy':strategy , 'result':cluster_prediction}) # update specific strategy approach, result , all will get stored and persister  , skip also rest of code.
+            last_prediction.update({'strategy':strategy , 'result':cluster_prediction})
             return cluster_prediction
 
-     ml_pred = ml_prediction(history)   # Use also model ML approach
+     ml_pred = ml_prediction(history)
      if ml_pred:
-        strategy="machine_learning" # same implementation and pattern as last ones to keep consistent method code pattern by variable update / local method/ variable for logic result of specific method  or parameters ( as in ML / probability model , streak , boosting ...etc.. ) , each one save specific method approach of  all bot features/ strategies by parameter `last_prediction` .
-        last_prediction.update( { 'strategy': strategy,'result' : ml_pred}) # save state and skipping by conditions for execution results or other type  if all passed
+        strategy="machine_learning"
+        last_prediction.update( { 'strategy': strategy,'result' : ml_pred})
         return ml_pred
 
 
-     probability_dict =calculate_probabilities(history)  # get from a probability data methods
-     probability_pred = apply_probability_threshold(probability_dict)  # using all previous validations also try if value is returned , also can fail this check. if there is values
-     if(probability_pred) : # set values of specific  if the approach method is use
+     probability_dict =calculate_probabilities(history)
+     probability_pred = apply_probability_threshold(probability_dict)
+     if(probability_pred) :
          strategy= "probability"
-         last_prediction.update({'strategy':strategy,'result': probability_pred})  # update current state / and all previous implementation that used that data. It will skip logic of others.
+         last_prediction.update({'strategy':strategy,'result': probability_pred})
          return probability_pred
 
 
-     streak_prediction = analyze_real_data(history) # patterns via series as output / results if matches pattern logic
+     streak_prediction = analyze_real_data(history)
      if streak_prediction:
-         strategy = "streak" # record value for methods/ output as "strategy approach from function, also include `result` value by each  approach"
-         last_prediction.update({'strategy':strategy, 'result':streak_prediction }) # save results/ skip all rest using early returns by parameters based conditions.
-
+         strategy = "streak"
+         last_prediction.update({'strategy':strategy, 'result':streak_prediction })
          return  streak_prediction
 
-
      strategy = "boosting"
-     last_prediction.update({'strategy':strategy,'result':statistical_prediction(history, 0.3) })  # finally do a result based on an average + using boosting approach in method parameter, before the `statistical_prediction`, all validations from above are used ,  by helper calls that perform as type casting, scale, transformation using past data models to predict based on valid params and method results based all  past implementation to deliver last chance if everything failed or skipped and using most basic implementation, as  a final option.
-     return statistical_prediction(history, 0.3) # returns based on fallback implementation if cannot predict using more complex strategies before by validation with `if method results is NULL/None do a fall back here and skip all other strategies methods implementations`,
+     last_prediction.update({'strategy':strategy,'result':statistical_prediction(history, 0.3) })
+     return statistical_prediction(history, 0.3)
+
 
 def calculate_training_status():
     total_predictions = len(user_feedback_history)
@@ -374,19 +360,20 @@ def calculate_training_status():
         return { "status" : "🤖 Chưa đủ dữ liệu.","accuracy" : 0 , "intelligence": 0  }
     correct_predictions = sum(1 for fb in user_feedback_history if fb['feedback'] == 'correct')
     accuracy_percentage = (correct_predictions / total_predictions) * 100 if total_predictions > 0 else 0
-    intelligence_level = np.mean(list(strategy_weights.values())) * 25 if  strategy_weights else 0  # weighted results, using more aggresive scale so can see result differences much easier. ( scale parameters).
+    intelligence_level = np.mean(list(strategy_weights.values())) * 25 if  strategy_weights else 0
     status_report = {
       "status": "💪 Bot đang được huấn luyện.",
       "accuracy":  accuracy_percentage ,
         "intelligence" : intelligence_level if  intelligence_level <=100 else 100
-    } # output parameters in json based using previous logic on text (using key from it as structured message values).
+    }
     return status_report
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
      start_text =  "✨ Chào mừng bạn đến với *{BOT_NAME}*!\n\n" \
                 "🎲 Sử dụng /tx [dãy lịch sử] để nhận dự đoán Tài/Xỉu.\n" \
              "➕ Sử dụng /add [kết quả] để thêm kết quả thực tế.\n" \
+              "🔄 Sử dụng /update để cập nhật toàn bộ lịch sử cược.\n" \
+                "💾 Sử dụng /save để lưu dữ liệu hiện tại.\n" \
                "📜 Nhập /history để xem lịch sử cược gần nhất.\n" \
                "📊 Nhập /chart để xem biểu đồ tần suất.\n" \
                "💾 Nhập /logchart để lưu biểu đồ hiện tại vào server.\n" \
@@ -394,6 +381,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
               "Bạn có thể bắt đầu sử dụng bằng cách nhập các lệnh trên, để trải nghiệm!\n"
 
      await update.message.reply_text(start_text.format(BOT_NAME=BOT_NAME), parse_mode=ParseMode.MARKDOWN)
+async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE):
+      save_cau_data()
+      await update.message.reply_text("🔄 Đã cập nhật dữ liệu cầu vào file.")
+
+async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+     save_data_state()
+     await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
+
 
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -421,6 +416,7 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(formatted_result, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         await update.message.reply_text(f"⚠️ Lỗi: {e}")
+
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
        user_input = ' '.join(context.args)
@@ -430,22 +426,22 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
        new_data = user_input.split()
 
-       if not all(item in ["t", "x"] for item in new_data):  #parameter validation before any data gets added .
+       if not all(item in ["t", "x"] for item in new_data):
           await update.message.reply_text("🚫 Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
           return
     
        for item in new_data :
-         if item not in ["t", "x"]: # skip/early return parameter invalid parameters via this cycle instead append all data at once in case we miss/forgot a non t/x value in string user input
-            await update.message.reply_text("🚫 Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).") # validation ( per each item) before append to database so its valid.
+         if item not in ["t", "x"]:
+            await update.message.reply_text("🚫 Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
 
-            return # if something wrong, skip here.
-   
+            return
+
        history_data.extend(new_data)
        for i in range(len(new_data) - 5 + 1):
-          train_data.append(list(history_data))  # Adding for Machine Learning Training  parameter validation data for models (training ) dataset of previous method and models parameter.
-          train_labels.append(new_data[i + 4])   # dataset values based results .
+          train_data.append(list(history_data))
+          train_labels.append(new_data[i + 4])
 
-       train_all_models() # finally if everything passed via code logic and data validation , do a full training ( machine learning or specific values by code)  update  with new info passed to it by user action input .
+       train_all_models()
        await update.message.reply_text(f"➕ Đã cập nhật dữ liệu: {new_data}")
     except Exception as e:
           await update.message.reply_text(f"⚠️ Lỗi: {e}")
@@ -491,6 +487,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
      help_text = f"✨ Hướng dẫn sử dụng *{BOT_NAME}*:\n\n" \
                 f"   🎲 /tx [dãy lịch sử]: Nhận dự đoán kết quả Tài/Xỉu.\n" \
                 f"   ➕ /add [kết quả]: Cập nhật kết quả thực tế.\n" \
+                f"   🔄 /update: Cập nhật toàn bộ lịch sử cược vào file.\n" \
+                 f"  💾  /save: Lưu dữ liệu bot hiện tại vào file\n" \
                f"   📜 /history : Xem lịch sử gần đây.\n" \
                 f"   📊 /chart : Xem biểu đồ tần suất.\n" \
               f"   💾 /logchart : Lưu biểu đồ vào máy chủ.\n" \
@@ -499,8 +497,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
               f"         - /tx t t x t x\n"  \
               f"         - /add t x x t t"
      await update.message.reply_text(help_text.format(BOT_NAME=BOT_NAME), parse_mode=ParseMode.MARKDOWN)
-
-
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     training_report = calculate_training_status()
     formatted_message = (
@@ -510,10 +506,11 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"   🧠 Mức độ thông minh: *{training_report['intelligence']:.2f}/100*\n"
     )
     await update.message.reply_text(formatted_message, parse_mode=ParseMode.MARKDOWN)
-  
+
 if __name__ == "__main__":
      create_feedback_table()
      load_data_state()
+     load_cau_data()
      app = ApplicationBuilder().token(TOKEN).build()
      app.add_handler(CommandHandler("start", start))
      app.add_handler(CommandHandler("tx", tx))
@@ -523,8 +520,10 @@ if __name__ == "__main__":
      app.add_handler(CommandHandler("chart", chart))
      app.add_handler(CommandHandler("logchart", logchart))
      app.add_handler(CommandHandler("status", status))
+     app.add_handler(CommandHandler("update", update_cau))
+     app.add_handler(CommandHandler("save", save_bot_data))
      app.add_handler(CallbackQueryHandler(button))
      print("Bot đang hoạt động...")
      app.run_polling()
-     save_data_state()
+
      print ("Bot đã dừng.")
