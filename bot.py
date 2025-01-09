@@ -24,7 +24,6 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext, CallbackQueryHandler
 
-
 # Configure logging
 LOG_FILE = 'bot_log.txt'
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,7 +35,7 @@ MODEL_UPDATE_INTERVAL_MINUTES = 10
 WEB_DATA_FILE = 'web_data.txt'
 
 # Global application object
-application = None 
+application = None
 
 # --- Helper Functions ---
 
@@ -53,14 +52,14 @@ def create_feedback_keyboard(prediction_id):
 
 # --- Handler Functions ---
 
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: CallbackContext):
     """Handles the /start command"""
     try:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
     except Exception as e:
         logging.error(f"Error in start handler: {str(e)}")
 
-def help(update: Update, context: CallbackContext):
+async def help(update: Update, context: CallbackContext):
     """Handles the /help command"""
     try:
         help_text = """
@@ -73,32 +72,59 @@ Các lệnh có sẵn:
 /history - Xem lịch sử dự đoán
 /accuracy - Xem độ chính xác
 /url <web_url> <selector> - Thu thập dữ liệu từ trang web
+/tx <number> <number> <number> - Nhập dữ liệu thủ công (cách nhau bởi khoảng trắng)
             """
-        context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
     except Exception as e:
         logging.error(f"Error in help handler: {str(e)}")
 
+async def handle_tx(update: Update, context: CallbackContext):
+    """Handles the /tx command to input historical data"""
+    try:
+         parts = update.message.text.split(' ', 1)
+         if len(parts) < 2:
+               await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp các số cách nhau bằng khoảng trắng sau lệnh /tx")
+               return
+         numbers_text = parts[1].strip()
+         numbers = []
+         for num_str in numbers_text.split():
+             if num_str.isdigit():
+                 numbers.append(int(num_str))
+             else:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng chỉ nhập các số hợp lệ. Dữ liệu bị bỏ qua")
+                return
+         if numbers:
+            for number in numbers:
+               predictor.record_game_result(number)
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đã ghi nhận {len(numbers)} số: {numbers}")
+         else:
+              await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy số nào")
 
-def handle_url(update: Update, context: CallbackContext):
+    except Exception as e:
+            logging.error(f"Error in handle_tx: {str(e)}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi xử lý lệnh /tx. Vui lòng kiểm tra dữ liệu đầu vào")
+
+async def handle_url(update: Update, context: CallbackContext):
     """Handles the /url command"""
     try:
          parts = update.message.text.split(' ', 2)
          if len(parts) < 3:
-              context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp URL và CSS selector. Ví dụ: `/url <url> <css selector>`")
+              await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp URL và CSS selector. Ví dụ: `/url <url> <css selector>`")
               return
          url, selector = parts[1], parts[2]
+         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đang thu thập dữ liệu từ {url} sử dụng selector `{selector}`...")
          predictor.collect_data_from_url(url, selector, update, context)
-         context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đang thu thập dữ liệu từ {url} sử dụng selector `{selector}`...")
     except IndexError:
-         context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp một URL hợp lệ và selector sau lệnh /url.")
+         await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp một URL hợp lệ và selector sau lệnh /url.")
     except Exception as e:
         logging.error(f"Error in handle_url: {str(e)}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Có lỗi xảy ra khi xử lý lệnh URL: {e}")
 
-def handle_prediction(update: Update, context: CallbackContext):
+async def handle_prediction(update: Update, context: CallbackContext):
     """Handles the /predict command"""
     try:
         if len(predictor.historical_data) < 10:
-            context.bot.send_message(chat_id=update.effective_chat.id, text="Cần ít nhất 10 số để dự đoán chính xác.")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Cần ít nhất 10 số để dự đoán chính xác.")
             return
 
         numbers = predictor.historical_data['result'].tolist()
@@ -141,17 +167,16 @@ def handle_prediction(update: Update, context: CallbackContext):
 
         prediction_id = len(predictor.historical_data)
         keyboard = create_feedback_keyboard(prediction_id)
-        context.bot.send_message(chat_id=update.effective_chat.id, text=report, reply_markup=keyboard)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=report, reply_markup=keyboard)
     except Exception as e:
         logging.error(f"Error in handle_prediction: {str(e)}")
-        context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
 
-
-def handle_feedback(update: Update, context: CallbackContext):
+async def handle_feedback(update: Update, context: CallbackContext):
     """Handles feedback from the buttons."""
     try:
         query = update.callback_query
-        query.answer()
+        await query.answer()
 
         feedback_data = query.data.split('_') # feedback_correct_{prediction_id} or feedback_incorrect_{prediction_id}
         feedback_type = feedback_data[1]
@@ -159,14 +184,15 @@ def handle_feedback(update: Update, context: CallbackContext):
 
         if prediction_id < len(predictor.historical_data):
             predictor.record_feedback(prediction_id, feedback_type)
-            query.edit_message_text(text=f"Đã nhận phản hồi: {feedback_type} cho dự đoán {prediction_id}")
+            await query.edit_message_text(text=f"Đã nhận phản hồi: {feedback_type} cho dự đoán {prediction_id}")
             if feedback_type == "correct":
                  predictor.update_models() # Update if the model is correct
         else:
-             query.edit_message_text(text="Dự đoán không hợp lệ. Có thể đã bị xoá.")
+             await query.edit_message_text(text="Dự đoán không hợp lệ. Có thể đã bị xoá.")
     except Exception as e:
          logging.error(f"Error in handle_feedback: {str(e)}")
-         query.edit_message_text(text="Lỗi xử lý phản hồi. Vui lòng thử lại.")
+         await query.edit_message_text(text="Lỗi xử lý phản hồi. Vui lòng thử lại.")
+
 
 class GamePredictor:
     def __init__(self, bot_token):
@@ -219,7 +245,7 @@ class GamePredictor:
         self.historical_data = pd.concat([self.historical_data, new_data], ignore_index=True) # Add data
         self.save_game_data() # Save to file
         logging.info(f"Recorded game result: {result} at {timestamp}")
-    
+
     def record_feedback(self, prediction_id, feedback_type):
        """Record feedback for a specific prediction"""
        try:
@@ -251,7 +277,7 @@ class GamePredictor:
                         break
                 else: # If no common selectors work
                     logging.error(f"Could not find data using any selector on {url}")
-                    context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy dữ liệu trên {url} với selector đã cho, hoặc selector mặc định.")
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy dữ liệu trên {url} với selector đã cho, hoặc selector mặc định.")
                     return
 
             text_data = ' '.join([el.get_text() for el in elements])
@@ -263,14 +289,14 @@ class GamePredictor:
                    logging.info(f"Extracted number from web: {number}")
             else:
                logging.warning(f"No numbers found on {url}")
-               context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
+               await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
       except requests.exceptions.RequestException as e:
             logging.error(f"Error fetching URL {url}: {str(e)}")
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
       except Exception as e:
             logging.error(f"Error collecting data from {url}: {str(e)}")
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi không xác định: {str(e)}")
-    
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi không xác định: {str(e)}")
+
     def extract_numbers_from_text(self, text):
         """Extract numbers from text using regular expression"""
         try:
@@ -306,7 +332,7 @@ class GamePredictor:
             if len(self.historical_data) < 10:
                 logging.info("Not enough data to train models.")
                 return
-            
+
             # Filter for correct feedback
             correct_data = self.historical_data[self.historical_data['feedback'] == 'correct']
             if len(correct_data) < 5: # At least 5 examples before we update
@@ -315,36 +341,36 @@ class GamePredictor:
 
             X = self.prepare_features(correct_data)
             y = correct_data['result'].values
-            
+
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-            
+
             # Cập nhật các model
             self.models['lr'].fit(X_train, y_train)
             self.models['rf'].fit(X_train, y_train)
             self.models['svr'].fit(X_train, y_train)
-            
+
             logging.info("Models updated successfully")
-            
+
         except Exception as e:
             logging.error(f"Model update error: {str(e)}")
 
     def prepare_features(self, df):
         """Chuẩn bị features cho ML"""
         df = df.copy()
-        
+
         # Tạo features
         df['hour'] = df['timestamp'].dt.hour
         df['day_of_week'] = df['timestamp'].dt.dayofweek
         df['rolling_mean'] = df['result'].rolling(window=5).mean()
         df['rolling_std'] = df['result'].rolling(window=5).std()
-        
+
         # One-hot encoding cho categorical features
         features = pd.get_dummies(df[['hour', 'day_of_week']])
         features = features.join(df[['rolling_mean', 'rolling_std']])
-        
+
         # Fill any remaining NaN with 0
         features.fillna(0, inplace=True)
-        
+
         return self.scaler.fit_transform(features)
 
     def mathematical_prediction(self, numbers):
@@ -372,7 +398,7 @@ class GamePredictor:
         total = len(numbers)
         counter = Counter(numbers)
         basic_prob = {num: count/total for num, count in counter.items()}
-        
+
         # Tính xác suất có điều kiện
         conditional_prob = defaultdict(dict)
         for i in range(len(numbers)-1):
@@ -429,17 +455,17 @@ class GamePredictor:
         # Chuẩn bị data
         X = np.array([numbers[i:i+5] for i in range(len(numbers)-5)])
         y = np.array(numbers[5:])
-        
+
         # Train multiple models
         predictions = {}
         for name, model in self.models.items():
             model.fit(X, y)
             pred = model.predict([numbers[-5:]])[0]
             predictions[name] = pred
-        
+
         # Ensemble prediction
         ensemble_pred = np.mean(list(predictions.values()))
-        
+
         return {
             'individual_predictions': predictions,
             'ensemble_prediction': ensemble_pred,
@@ -468,7 +494,7 @@ class GamePredictor:
         """Tìm các chuỗi số"""
         sequences = []
         current_seq = [numbers[0]]
-        
+
         for i in range(1, len(numbers)):
             if numbers[i] == numbers[i-1] + 1:
                 current_seq.append(numbers[i])
@@ -476,7 +502,7 @@ class GamePredictor:
                 if len(current_seq) > 1:
                     sequences.append(current_seq)
                 current_seq = [numbers[i]]
-        
+
         return sequences
 
     def find_repeating_patterns(self, numbers):
@@ -489,15 +515,15 @@ class GamePredictor:
                     patterns[pattern] += 1
                 else:
                     patterns[pattern] = 1
-        
+
         return dict(sorted(patterns.items(), key=lambda x: x[1], reverse=True)[:5])
 
     def analyze_cycles(self, numbers):
         """Phân tích chu kỳ"""
         fft = np.fft.fft(numbers)
         frequencies = np.fft.fftfreq(len(numbers))
-        dominant_cycles = sorted([(abs(fft[i]), 1/abs(freq)) 
-                                for i, freq in enumerate(frequencies) 
+        dominant_cycles = sorted([(abs(fft[i]), 1/abs(freq))
+                                for i, freq in enumerate(frequencies)
                                 if freq > 0], reverse=True)[:3]
         return dominant_cycles
 
@@ -514,7 +540,7 @@ class GamePredictor:
 
         class Population:
             def __init__(self, size, gene_length):
-                self.individuals = [Individual(np.random.randint(0, 10, gene_length)) 
+                self.individuals = [Individual(np.random.randint(0, 10, gene_length))
                                   for _ in range(size)]
 
             def evolve(self, generations, target):
@@ -522,13 +548,13 @@ class GamePredictor:
                     # Tính fitness
                     for ind in self.individuals:
                         ind.calculate_fitness(target)
-                    
+
                     # Sắp xếp theo fitness
                     self.individuals.sort(key=lambda x: x.fitness, reverse=True)
-                    
+
                     # Chọn lọc
                     next_gen = self.individuals[:len(self.individuals)//2]
-                    
+
                     # Lai ghép
                     while len(next_gen) < len(self.individuals):
                         parent1, parent2 = np.random.choice(next_gen, 2)
@@ -536,13 +562,13 @@ class GamePredictor:
                         child_genes = np.concatenate([parent1.genes[:crossover_point],
                                                     parent2.genes[crossover_point:]])
                         next_gen.append(Individual(child_genes))
-                    
+
                     # Đột biến
                     for ind in next_gen[1:]:
                         if np.random.random() < 0.1:
                             mutation_point = np.random.randint(0, len(ind.genes))
                             ind.genes[mutation_point] = np.random.randint(0, 10)
-                    
+
                     self.individuals = next_gen
 
                 return self.individuals[0]
@@ -551,7 +577,7 @@ class GamePredictor:
         target_sum = sum(numbers[-5:])
         pop = Population(size=50, gene_length=5)
         best_individual = pop.evolve(generations=100, target=target_sum)
-        
+
         return {
             'predicted_sequence': best_individual.genes.tolist(),
             'fitness': best_individual.fitness,
@@ -572,13 +598,13 @@ class GamePredictor:
         """Phân tích xu hướng hiện tại"""
         if len(numbers) < 2:
             return None
-            
+
         recent_numbers = numbers[-10:]
         trend = {
             'direction': 'up' if recent_numbers[-1] > recent_numbers[0] else 'down',
             'strength': abs(recent_numbers[-1] - recent_numbers[0]),
             'consistency': sum(1 for i in range(1, len(recent_numbers))
-                             if (recent_numbers[i] - recent_numbers[i-1] > 0) == 
+                             if (recent_numbers[i] - recent_numbers[i-1] > 0) ==
                                 (recent_numbers[-1] > recent_numbers[0])) / (len(recent_numbers)-1)
         }
         return trend
@@ -596,7 +622,7 @@ class GamePredictor:
         returns = np.diff(numbers) / numbers[:-1]
         return {
             'historical_volatility': np.std(returns) * np.sqrt(252),
-            'average_true_range': sum(abs(high - low) 
+            'average_true_range': sum(abs(high - low)
                                     for high, low in zip(numbers[1:], numbers[:-1])) / (len(numbers)-1)
         }
 
@@ -605,13 +631,13 @@ class GamePredictor:
         trend = self.analyze_current_trend(numbers)
         momentum = self.calculate_momentum(numbers)
         volatility = self.analyze_volatility(numbers)
-        
+
         score = 0
         if trend['direction'] == 'up':
             score += trend['strength'] * trend['consistency']
         score += momentum['roc'] * 100
         score -= volatility['historical_volatility']
-        
+
         return max(min(score, 100), 0)  # Normalize to 0-100
 
 
@@ -631,11 +657,11 @@ def main():
     application.add_handler(CommandHandler("help", help))
     application.add_handler(CommandHandler("url", handle_url))
     application.add_handler(CommandHandler("predict", handle_prediction))
-    
+    application.add_handler(CommandHandler("tx", handle_tx))
+
     logging.info("Bot is starting...")  # Notify that the bot is starting
     predictor.start_bot()  # Start the bot
     logging.info("Bot has started successfully.")
-
 
 if __name__ == "__main__":
     main()
