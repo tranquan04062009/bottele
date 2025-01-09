@@ -21,7 +21,7 @@ import threading
 from scipy import stats
 import math
 import os
-os.system("pip install telebot")
+os.system("pip install pyTelegramBotAPI")
 os.system("pip install numpy")
 os.system("pip install pandas")
 os.system("pip install scikit-learn")
