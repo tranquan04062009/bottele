@@ -18,7 +18,6 @@ import json
 import time
 import sqlite3
 
-
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TOKEN:
     raise ValueError("Biến môi trường TELEGRAM_TOKEN không tìm thấy!")
