@@ -117,17 +117,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Lệnh /tx (dự đoán Tài/Xỉu)
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
-    await query.message.reply_text(
-        "Nhập lịch sử kết quả (t: Tài, x: Xỉu). Chọn Tài hoặc Xỉu nhé!",
+    await query.edit_message_text(
+        text="Nhập lịch sử kết quả (t: Tài, x: Xỉu). Chọn Tài hoặc Xỉu nhé!",
         reply_markup=tx_menu()
     )
 
 # Lệnh /add (cập nhật dữ liệu thực tế)
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query  # Lấy thông tin callback_query
-    await query.message.reply_text(
-        "Nhập kết quả thực tế (t: Tài, x: Xỉu). Sau khi xong, nhấn 'Xong'!",
+    query = update.callback_query
+    await query.edit_message_text(
+        text="Nhập kết quả thực tế (t: Tài, x: Xỉu). Sau khi xong, nhấn 'Xong'!",
         reply_markup=tx_menu()
     )
 
@@ -145,41 +144,60 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/tx: Dự đoán kết quả Tài/Xỉu.\n"
         "/add: Cập nhật dữ liệu thực tế.\n"
         "/history: Xem lịch sử gần nhất.\n"
-        "/help: Hướng dẫn sử dụng bot."
+        "/help: Hướng dẫn sử dụng bot.\n"
+        "/start: khởi động bot.",
     )
 
 # Xử lý các sự kiện từ menu
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # Trả lời nhanh để tránh timeout
+    await query.answer()
 
-    # Kiểm tra `callback_data` và gọi hàm phù hợp
     if query.data == "tx":
         await tx(update, context)
     elif query.data == "add":
         await add(update, context)
-    elif query.data.startswith("tx_"):
-        await button_handler(update, context)
     elif query.data == "history":
-        await history(update, context)
+        await query.edit_message_text(
+            text="Hiện tại chưa có dữ liệu lịch sử.",
+            reply_markup=main_menu()
+        )
     elif query.data == "help":
-        await help_command(update, context)
+        await query.edit_message_text(
+            text="Hướng dẫn sử dụng bot:\n"
+                 "/tx: Dự đoán kết quả Tài/Xỉu.\n"
+                 "/add: Cập nhật dữ liệu thực tế.\n"
+                 "/history: Xem lịch sử gần nhất.\n"
+                 "/help: Hướng dẫn sử dụng bot.\n"
+                 "/start: khởi động bot.",
+            reply_markup=main_menu()
+        )
 
 # Xử lý kết quả dự đoán Tài/Xỉu (Đúng/Sai)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()  # Đáp lại callback để tránh lỗi timeout
 
+    # Xử lý các nút trong menu Tài/Xỉu
     if query.data == "tx_t":
         history_data.append("Tài")
-        await query.message.reply_text(f"Kết quả: {' '.join(history_data)}", reply_markup=tx_menu())
+        result_text = f"ls hiện tại: {' '.join(history_data)}"
+        await query.edit_message_text(
+            text=result_text,
+            reply_markup=tx_menu()
+        )
     elif query.data == "tx_x":
         history_data.append("Xỉu")
-        await query.message.reply_text(f"Kết quả: {' '.join(history_data)}", reply_markup=tx_menu())
+        result_text = f"ls hiện tại: {' '.join(history_data)}"
+        await query.edit_message_text(
+            text=result_text,
+            reply_markup=tx_menu()
+        )
     elif query.data == "finish_tx":
+        # Tạo dự đoán dựa trên lịch sử
         result = combined_prediction(history_data)
-        await query.message.reply_text(f"Bot dự đoán kết quả: {result}")
-        # Hiển thị nút "Đúng" và "Sai"
+        result_text = f"Bot dự đoán kết quả: {result}"
+        # Hiển thị nút "Đúng" và "Sai" sau khi dự đoán
         buttons = [
             [
                 InlineKeyboardButton("Đúng", callback_data="correct"),
@@ -187,10 +205,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await query.message.reply_text(result_text, reply_markup=reply_markup)
+        await query.edit_message_text(
+            text=result_text,
+            reply_markup=reply_markup
+        )
         return
+    else:
+        result_text = "Không rõ hành động này. Vui lòng thử lại."
 
-    await query.message.reply_text(result_text, reply_markup=tx_menu())
+    # Cập nhật tin nhắn hiện tại
+    await query.edit_message_text(
+        text=result_text,
+        reply_markup=tx_menu()
+    )
 
 # Xử lý kết quả đúng/sai
 async def correct_incorrect_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -222,10 +249,9 @@ def main():
     application.add_handler(CommandHandler("history", history))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CallbackQueryHandler(menu_handler))
-    application.add_handler(CallbackQueryHandler(menu_handler, pattern="^(tx|add|history|help)$"))
-    application.add_handler(CallbackQueryHandler(button_handler, pattern="^(tx_t|tx_x|finish_tx)$"))
+    application.add_handler(CallbackQueryHandler(menu_handler, pattern="^(tx|add|history|help)$"))  # Menu chính
+    application.add_handler(CallbackQueryHandler(button_handler, pattern="^(tx_t|tx_x|finish_tx)$"))  # Tài/Xỉu
     application.add_handler(CallbackQueryHandler(correct_incorrect_handler, pattern="^(correct|incorrect)$"))
-
     application.run_polling()
 
 if __name__ == "__main__":
