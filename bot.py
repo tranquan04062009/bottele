@@ -183,18 +183,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result_text = f"ls hiện tại: {' '.join(history_data)}"
         await query.edit_message_text(
             text=result_text,
-            reply_markup=tx_menu()
+            reply_markup=tx_menu()  # Đảm bảo trả lại menu Tài/Xỉu
         )
     elif query.data == "tx_x":
         history_data.append("Xỉu")  # Thêm kết quả vào deque
         result_text = f"ls hiện tại: {' '.join(history_data)}"
         await query.edit_message_text(
             text=result_text,
-            reply_markup=tx_menu()
+            reply_markup=tx_menu()  # Đảm bảo trả lại menu Tài/Xỉu
         )
     elif query.data == "finish_tx":
-        # Sử dụng deque để dự đoán kết quả
-        result = combined_prediction(list(history_data))  # Chuyển deque thành list nếu cần
+        result = combined_prediction(list(history_data))  # Dự đoán kết quả
         result_text = f"Bot dự đoán kết quả: {result}"
         # Nút "Đúng" và "Sai" để đánh giá
         buttons = [
@@ -209,10 +208,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
         return
-    else:
-        result_text = "Không rõ hành động này. Vui lòng thử lại."
 
-    # Cập nhật tin nhắn hiện tại
+    # Quay lại menu Tài/Xỉu
+    result_text = "Chọn tiếp một tùy chọn dưới đây."
     await query.edit_message_text(
         text=result_text,
         reply_markup=tx_menu()
@@ -227,8 +225,8 @@ async def correct_incorrect_handler(update: Update, context: ContextTypes.DEFAUL
         await query.message.reply_text("Chúc mừng! 🎉 Kết quả chính xác, thêm vào dữ liệu huấn luyện.")
         # Cập nhật mô hình (thêm vào dữ liệu huấn luyện)
         train_data.append([history_data[-5:]])
-        train_labels.append("t" if query.data == "t" else "x")
-        train_model()
+        train_labels.append("t" if history_data[-1] == "Tài" else "x")
+        train_model()  # Huấn luyện mô hình
     else:
         await query.message.reply_text("Không sao, lần sau sẽ chính xác hơn! 😅")
 
