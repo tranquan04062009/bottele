@@ -1,5 +1,4 @@
 import os
-os.system("pip install schedule numpy pandas scikit-learn requests beautifulsoup4 scipy python-telegram-bot")
 import logging
 import re
 import time
