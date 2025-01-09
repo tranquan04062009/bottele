@@ -18,6 +18,9 @@ from collections import Counter, defaultdict
 import warnings
 from scipy import stats
 import math
+from urllib.parse import urljoin, urlparse
+from queue import Queêu
+
 from telegram import Update
 from telegram.ext import Updater, CommandHandler
 
@@ -26,13 +29,15 @@ LOG_FILE = 'bot_log.txt'
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 warnings.filterwarnings('ignore')
 
+# Set default paths
 DATA_FILE = 'game_data.csv'
 MODEL_UPDATE_INTERVAL_MINUTES = 10
 WEB_DATA_FILE = 'web_data.txt'
 
 class GamePredictor:
     def __init__(self, bot_token):
-         self.updater = Updater(bot_token)
+         self.update_queue = Queue() # Create a queue object to be used in updater
+         self.updater = Updater(bot_token, update_queue=self.update_queue) # Initialize updater with queue
          self.dispatcher = self.updater.dispatcher
          self.game_data = []
          self.historical_data = pd.DataFrame()
@@ -44,7 +49,6 @@ class GamePredictor:
          self.scaler = StandardScaler()
          self.load_game_data()
 
-
     def start(self):
         self.setup_handlers()
         self.schedule_data_collection()
@@ -52,13 +56,11 @@ class GamePredictor:
         self.updater.start_polling()
         self.updater.idle()
 
-
     def setup_handlers(self):
         self.dispatcher.add_handler(CommandHandler("start", self.send_welcome))
         self.dispatcher.add_handler(CommandHandler("help", self.send_help))
         self.dispatcher.add_handler(CommandHandler("url", self.handle_url))
         self.dispatcher.add_handler(CommandHandler("predict", self.handle_prediction))
-
 
     def send_welcome(self, update: Update, ):
          update.message.reply_text("Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
@@ -73,17 +75,21 @@ Các lệnh có sẵn:
 /analyze - Phân tích toàn diện
 /history - Xem lịch sử dự đoán
 /accuracy - Xem độ chính xác
-/url <web_url> - Thu thập dữ liệu từ trang web
+/url <web_url> <selector> - Thu thập dữ liệu từ trang web
             """
         update.message.reply_text(help_text)
 
     def handle_url(self, update: Update):
          try:
-            url = update.message.text.split(' ', 1)[1]
-            self.collect_data_from_url(url, update) # Pass update instead of context
-            update.message.reply_text(f"Đang thu thập dữ liệu từ {url}...")
+            parts = update.message.text.split(' ', 2)
+            if len(parts) < 3:
+                update.message.reply_text("Vui lòng cung cấp URL và CSS selector. Ví dụ: `/url <url> <css selector>`")
+                return
+            url, selector = parts[1], parts[2]
+            self.collect_data_from_url(url, selector, update)
+            update.message.reply_text(f"Đang thu thập dữ liệu từ {url} sử dụng selector `{selector}`...")
          except IndexError:
-            update.message.reply_text("Vui lòng cung cấp một URL hợp lệ sau lệnh /url.")
+            update.message.reply_text("Vui lòng cung cấp một URL hợp lệ và selector sau lệnh /url.")
 
     def load_game_data(self):
         """Load game data from CSV file"""
@@ -110,7 +116,6 @@ Các lệnh có sẵn:
        new_result = np.random.randint(1, 7) # simulate a dice roll
        self.record_game_result(new_result)
 
-
     def record_game_result(self, result):
         """Record a single game result to the data"""
         timestamp = datetime.now()
@@ -119,39 +124,46 @@ Các lệnh có sẵn:
         self.save_game_data() # Save to file
         logging.info(f"Recorded game result: {result} at {timestamp}")
 
-    def collect_data_from_url(self, url, update: Update):
-        """Thu thập và xử lý dữ liệu từ URL"""
-        try:
-            response = requests.get(url)
-            response.raise_for_status() # Raise error for bad status codes
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-             # Extract data based on website structure (adapt to each site)
-            # Example: Assuming numbers are in <p> tags with a particular class
-            # Adjust the CSS selector to fit your target website
-            paragraphs = soup.find_all('p', class_='your-data-class') 
-            if not paragraphs:
-                logging.warning(f"No data found with specified selector on {url}")
-                update.message.reply_text(f"Không tìm thấy dữ liệu phù hợp trên {url}")
-                return
 
-            text_data = ' '.join([para.get_text() for para in paragraphs])
+    def collect_data_from_url(self, url, selector, update: Update):
+      """Thu thập và xử lý dữ liệu từ URL"""
+      try:
+            response = requests.get(url)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Try the user-specified selector first
+            elements = soup.select(selector)
+            if elements:
+                logging.info(f"Found data with user-provided selector '{selector}' on {url}")
+            else:
+                # Try common selectors as fallback. You can add to this list to increase robustness.
+                common_selectors = ['p', 'span', 'div', 'li', '.result', '#result']
+                for sel in common_selectors:
+                    elements = soup.select(sel)
+                    if elements:
+                        selector = sel
+                        logging.warning(f"Could not find data with '{selector}', using fallback selector '{sel}' on {url}")
+                        break
+                else: # If no common selectors work
+                    logging.error(f"Could not find data using any selector on {url}")
+                    update.message.reply_text(f"Không tìm thấy dữ liệu trên {url} với selector đã cho, hoặc selector mặc định.")
+                    return
+
+            text_data = ' '.join([el.get_text() for el in elements])
             numbers = self.extract_numbers_from_text(text_data)
-            
-            # Record valid numbers in history data
+             # Record valid numbers in history data
             if numbers:
               for number in numbers:
-                self.record_game_result(number) 
+                self.record_game_result(number)
                 logging.info(f"Extracted number from web: {number}")
             else:
                 logging.warning(f"No numbers found on {url}")
                 update.message.reply_text(f"Không có số nào được tìm thấy trên {url}")
-        
-        except requests.exceptions.RequestException as e:
+      except requests.exceptions.RequestException as e:
             logging.error(f"Error fetching URL {url}: {str(e)}")
             update.message.reply_text(f"Lỗi khi truy cập URL: {str(e)}")
-
-        except Exception as e:
+      except Exception as e:
             logging.error(f"Error collecting data from {url}: {str(e)}")
             update.message.reply_text(f"Lỗi không xác định: {str(e)}")
     
