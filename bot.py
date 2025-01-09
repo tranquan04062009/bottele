@@ -72,33 +72,33 @@ Các lệnh có sẵn:
 /history - Xem lịch sử dự đoán
 /accuracy - Xem độ chính xác
 /url <web_url> <selector> - Thu thập dữ liệu từ trang web
-/tx <number> <number> <number> - Nhập dữ liệu thủ công (cách nhau bởi khoảng trắng)
+/tx <number> <number> <number> - Nhập dữ liệu thủ công (cách nhau bởi khoảng trắng, mỗi số biểu thị một ván tài xỉu (Tổng số chấm của 3 hột xí ngầu).
             """
         await context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
     except Exception as e:
         logging.error(f"Error in help handler: {str(e)}")
 
 async def handle_tx(update: Update, context: CallbackContext):
-    """Handles the /tx command to input historical data"""
+    """Handles the /tx command to input historical data for tai xiu"""
     try:
          parts = update.message.text.split(' ', 1)
          if len(parts) < 2:
-               await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp các số cách nhau bằng khoảng trắng sau lệnh /tx")
+               await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp các số cách nhau bằng khoảng trắng sau lệnh /tx. Mỗi số là tổng của 3 hột xí ngầu")
                return
          numbers_text = parts[1].strip()
          numbers = []
          for num_str in numbers_text.split():
-             if num_str.isdigit():
+             if num_str.isdigit() and 3 <= int(num_str) <= 18 :
                  numbers.append(int(num_str))
              else:
-                await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng chỉ nhập các số hợp lệ. Dữ liệu bị bỏ qua")
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng chỉ nhập các số hợp lệ (3-18). Dữ liệu bị bỏ qua")
                 return
          if numbers:
             for number in numbers:
                predictor.record_game_result(number)
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đã ghi nhận {len(numbers)} số: {numbers}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đã ghi nhận {len(numbers)} số tài xỉu: {numbers}")
          else:
-              await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy số nào")
+              await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy số tài xỉu nào")
 
     except Exception as e:
             logging.error(f"Error in handle_tx: {str(e)}")
@@ -270,8 +270,8 @@ class GamePredictor:
 
     def collect_data(self):
        """Scheduled data collection (example: random number between 1 and 6)"""
-       # Generate a random game result
-       new_result = np.random.randint(1, 7) # simulate a dice roll
+       # Generate a random game result (3-18 simulate Tai Xiu results)
+       new_result = np.random.randint(3, 19) 
        self.record_game_result(new_result)
 
     def record_game_result(self, result):
@@ -292,62 +292,68 @@ class GamePredictor:
             logging.error(f"Error recording feedback: {str(e)}")
 
     async def collect_data_from_url(self, url, selector, update: Update, context: CallbackContext):
-        """Thu thập và xử lý dữ liệu từ URL"""
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
+      """Thu thập và xử lý dữ liệu từ URL"""
+      try:
+          response = requests.get(url, timeout=10) #Added a timeout to handle slow pages or network issues
+          response.raise_for_status() #Raise HTTPError for bad responses (4xx or 5xx)
 
-            # Attempt to get data using user selector
-            elements = soup.select(selector)
+          soup = BeautifulSoup(response.content, 'html.parser')
 
-            if elements:
+          elements = soup.select(selector)
+
+          if elements:
                 logging.info(f"Found data with user-provided selector '{selector}' on {url}")
-            else:
-                # Fallback with some common CSS selector if user specified selector fail to get data
-                common_selectors = [
+          else:
+               #Fall back to common selector if provided is not good or doesn't work on given url
+               common_selectors = [
                     'span.bet-history__item-result', # for https://68gb2025.ink/?code=10853170
                     'p', 'span', 'div', 'li', '.result', '#result',
                     '.text-result', 'div.item-session.has-result .text',
-                     '.history__item .result', 'div[class*="bet-history-"] .value-result',
+                    '.history__item .result', 'div[class*="bet-history-"] .value-result',
+                     'div.result_card .text_number',
                 ]
-
-                for sel in common_selectors:
-                     elements = soup.select(sel)
-                     if elements:
+               for sel in common_selectors:
+                   elements = soup.select(sel)
+                   if elements:
                          selector = sel
                          logging.warning(f"Could not find data with '{selector}', using fallback selector '{sel}' on {url}")
                          break
-                else: # If no common selectors work
-                    logging.error(f"Could not find data using any selector on {url}")
-                    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy dữ liệu trên {url} với selector đã cho, hoặc selector mặc định.")
-                    return
+               else:
+                   logging.error(f"Could not find data using any selector on {url}")
+                   await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy dữ liệu trên {url} với selector đã cho, hoặc selector mặc định.")
+                   return
 
+          text_data = ' '.join([el.get_text(strip=True) for el in elements]) #Use a `strip()` to removes all white spaces
+          numbers = self.extract_numbers_from_text(text_data) #use the extractor function to convert from string to number
 
-            text_data = ' '.join([el.get_text().strip() for el in elements]) #Extract numbers from text
-            numbers = self.extract_numbers_from_text(text_data)
-
-            # Record valid numbers
-            if numbers:
-               for number in numbers:
-                   self.record_game_result(number)
-               logging.info(f"Extracted number from web: {numbers}")
-            else:
+          if numbers:
+               #Filter number to get number between range 3 and 18, Tai xiu result from 3-18
+                valid_numbers = [num for num in numbers if 3 <= num <= 18]
+                if valid_numbers:
+                      for number in valid_numbers:
+                          self.record_game_result(number)
+                      logging.info(f"Extracted number from web: {valid_numbers}")
+                else:
+                      logging.warning(f"No Tai Xiu numbers (3-18) found on {url}")
+                      await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy số tài xỉu hợp lệ (3-18) trên {url}")
+          else:
                logging.warning(f"No numbers found on {url}")
                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
-        except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching URL {url}: {str(e)}")
-                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
-        except Exception as e:
+
+      except requests.exceptions.RequestException as e:
+             logging.error(f"Error fetching URL {url}: {str(e)}")
+             await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
+
+      except Exception as e:
              logging.error(f"Error collecting data from {url}: {str(e)}")
              await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi không xác định: {str(e)}")
 
 
     def extract_numbers_from_text(self, text):
-        """Extract numbers from text using regular expression"""
+        """Extract numbers from text using regular expression, handling whitespace before,after or in numbers"""
         try:
-            numbers = re.findall(r'\b\d+\b', text)  # Find whole number (e.g., prevent getting 23 in 123)
-            return [int(num) for num in numbers]
+             numbers = re.findall(r'\b\d+\b', text)
+             return [int(num) for num in numbers]
         except Exception as e:
             logging.error(f"Error extracting numbers: {str(e)}")
             return []
