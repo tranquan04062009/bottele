@@ -23,7 +23,7 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TOKEN:
     raise ValueError("Biến môi trường TELEGRAM_TOKEN không tìm thấy!")
 
-BOT_NAME = "Bot Tài Xỉu Thông Minh"
+BOT_NAME = "🤖 Bot Tài Xỉu Pro"
 DATABASE_NAME = "tx_feedback.db"
 DATA_PERSISTENT_PATH = "bot_data.json"
 
@@ -43,9 +43,7 @@ model_svm = SVC(kernel='linear', probability=True, random_state=42)
 model_sgd = SGDClassifier(loss='log_loss', random_state=42)
 model_rf = RandomForestClassifier(random_state=42)
 model_nb = GaussianNB()
-
 model_calibrated_svm = CalibratedClassifierCV(model_svm, method='isotonic', cv=5)
-
 model_kmeans = KMeans(n_clusters=2, n_init=10, random_state=42)
 models_to_calibrate = [model_logistic, model_sgd, model_rf]
 calibrated_models = {}
@@ -83,7 +81,6 @@ def load_data_state():
             history_data = deque(loaded_data.get("history_data", []), maxlen=400)
         print("Đã tải dữ liệu trạng thái.")
 
-
 def save_data_state():
     global strategy_weights, last_prediction, user_feedback_history, history_data
     data = {
@@ -118,15 +115,14 @@ def generate_history_chart(history):
     plt.bar(labels, values, color=['skyblue', 'salmon'])
     for i, v in enumerate(values):
         plt.text(labels[i], v + 0.1, str(v), ha='center', va='bottom')
-    plt.xlabel('Kết quả (T: Tài, X: Xỉu)', fontsize=12)
-    plt.ylabel('Tần suất', fontsize=12)
-    plt.title('Phân Bố Kết Quả', fontsize=14)
+    plt.xlabel('🎲 Kết quả (T: Tài, X: Xỉu)', fontsize=12)
+    plt.ylabel('📊 Tần suất', fontsize=12)
+    plt.title('📈 Phân Bố Kết Quả Gần Nhất', fontsize=14)
     buffer = BytesIO()
     plt.savefig(buffer, format='png')
     buffer.seek(0)
     plt.close()
     return buffer
-
 
 def calculate_probabilities(history):
     if not history:
@@ -136,7 +132,6 @@ def calculate_probabilities(history):
     prob_tai = counter["t"] / total
     prob_xiu = counter["x"] / total
     return {"t": prob_tai, "x": prob_xiu}
-
 
 def apply_probability_threshold(prob_dict, threshold_t=0.55, threshold_x=0.45):
     return "t" if prob_dict["t"] > threshold_t else "x" if prob_dict["x"] > threshold_x else None
@@ -181,6 +176,7 @@ def train_all_models():
 
         for model in models_to_calibrate:
             try:
+
                 model.fit(X, Y)
                 calibrated_models[model] = model
             except ValueError:
@@ -188,9 +184,11 @@ def train_all_models():
         model_svm.fit(X, Y)
         model_calibrated_svm.fit(X, Y)
 
+
 def ml_prediction(history):
     if len(train_data) < 10:
         return statistical_prediction(history)
+
     features, label = prepare_data_for_models(history)
     if features is None:
         return None
@@ -225,7 +223,7 @@ def ml_prediction(history):
         return predicted_outcome
     else:
         return svm_label
-
+    
 def _predict_probabilty(model, features):
     if hasattr(model, 'predict_proba'):
         try:
@@ -236,7 +234,6 @@ def _predict_probabilty(model, features):
         except ValueError:
             return {"t": float('NaN'), "x": float('NaN')}, None
     return {"t": float('NaN'), "x": float('NaN')}, None
-
 
 def cluster_analysis(history):
     if len(history) < 5:
@@ -261,7 +258,6 @@ def cluster_analysis(history):
         else:
             return 't'
 
-
 def analyze_real_data(history):
     if len(history) < 3:
         return None
@@ -270,7 +266,6 @@ def analyze_real_data(history):
     if all(history[i] != history[i + 1] for i in range(len(history) - 1)):
         return "t" if history[-1] == "x" else "x"
     return None
-
 
 def deterministic_algorithm(history):
     if len(history) < 4:
@@ -326,48 +321,41 @@ def combined_prediction(history):
     last_prediction.update({'strategy': strategy, 'result': statistical_prediction(history, 0.3)})
     return statistical_prediction(history, 0.3)
 
-
 def calculate_training_status():
-        
-    total_predictions=len(user_feedback_history)
-
-    if total_predictions == 0 : # early exits, return zero of if empty (avoid / zero div exceptions ).
-
-         return { "status" : "Bot chưa có đủ dữ liệu.","accuracy" : 0 , "intelligence": 0  } 
-
+    total_predictions = len(user_feedback_history)
+    if total_predictions == 0:
+         return { "status" : "🤖 Chưa đủ dữ liệu.","accuracy" : 0 , "intelligence": 0  }
     correct_predictions = sum(1 for fb in user_feedback_history if fb['feedback'] == 'correct')
-    incorrect_predictions = total_predictions - correct_predictions
-    accuracy_percentage= (correct_predictions / total_predictions) * 100 if total_predictions > 0 else 0
-    intelligence_level= np.mean(list(strategy_weights.values())) * 25 if  strategy_weights else 0 # average the weights to a scalar representation
-   
-    status_report= {
-       "status": "Bot đang được huấn luyện.", # Status current training state
-        "accuracy":  accuracy_percentage ,  #Percentage score based on feedback and RL results of current set by users/bot
-         "intelligence" :  intelligence_level if  intelligence_level <=100 else 100 # Intelligence metrics/scaled based weights as a general approach on model output quality
-
-    } # format as dictionary
-
+    accuracy_percentage = (correct_predictions / total_predictions) * 100 if total_predictions > 0 else 0
+    intelligence_level = np.mean(list(strategy_weights.values())) * 25 if  strategy_weights else 0 #Scale 
+    status_report = {
+        "status": "💪 Bot đang được huấn luyện.",
+        "accuracy": accuracy_percentage ,
+        "intelligence" : intelligence_level if  intelligence_level <=100 else 100
+    }
     return status_report
 
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"Chào mừng bạn đến với {BOT_NAME}!\n"
-        "Sử dụng /tx để dự đoán, /add để thêm kết quả.\n"
-        "Nhập /help để xem hướng dẫn, /history để xem lịch sử, /chart để xem biểu đồ hoặc /logchart để lưu biểu đồ,  /status  để xem trạng thái bot.",
-        parse_mode=ParseMode.MARKDOWN
-    )
+     start_text =  "✨ Chào mừng bạn đến với *{BOT_NAME}*!\n\n" \
+             "🎲 Sử dụng /tx [dãy lịch sử] để nhận dự đoán Tài/Xỉu.\n" \
+             "➕ Sử dụng /add [kết quả] để thêm kết quả thực tế.\n" \
+             "📜 Nhập /history để xem lịch sử cược gần nhất.\n" \
+             "📊 Nhập /chart để xem biểu đồ tần suất.\n" \
+             "💾 Nhập /logchart để lưu biểu đồ hiện tại vào server.\n" \
+             "🧐 Nhập /status để xem trạng thái và độ thông minh bot\n\n" \
+             "Bạn có thể bắt đầu sử dụng bằng cách nhập các lệnh trên, để trải nghiệm!\n"
+
+     await update.message.reply_text(start_text.format(BOT_NAME=BOT_NAME), parse_mode=ParseMode.MARKDOWN)
 
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_input = ' '.join(context.args)
         if not user_input:
-            await update.message.reply_text("Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu).")
+            await update.message.reply_text("📝 Vui lòng nhập dãy lịch sử (t: Tài, x: Xỉu).")
             return
         history = user_input.split()
         if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text("Dữ liệu không hợp lệ. Lịch sử chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
+            await update.message.reply_text("🚫 Dữ liệu không hợp lệ. Lịch sử chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
             return
         history_data.extend(history)
         if len(history) >= 5:
@@ -377,33 +365,34 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = combined_prediction(list(history_data))
         last_prediction["model"] = BOT_NAME
         keyboard = [
-            [InlineKeyboardButton("Đúng", callback_data='correct')],
-            [InlineKeyboardButton("Sai", callback_data='incorrect')]
+            [InlineKeyboardButton("✅ Đúng", callback_data='correct')],
+            [InlineKeyboardButton("❌ Sai", callback_data='incorrect')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        formatted_result = f"Kết quả dự đoán từ {BOT_NAME} : *{'Tài' if result == 't' else 'Xỉu'}* "
+        formatted_result = f"🔮 Kết quả dự đoán từ *{BOT_NAME}*: *{'✨Tài✨' if result == 't' else '🖤Xỉu🖤'}* "
         await update.message.reply_text(formatted_result, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
-        await update.message.reply_text(f"Lỗi: {e}")
+        await update.message.reply_text(f"⚠️ Lỗi: {e}")
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_input = ' '.join(context.args)
         if not user_input:
-            await update.message.reply_text("Vui lòng nhập kết quả thực tế (t: Tài, x: Xỉu)!")
+            await update.message.reply_text("📝 Vui lòng nhập kết quả thực tế (t: Tài, x: Xỉu)!")
             return
         new_data = user_input.split()
         if not all(item in ["t", "x"] for item in new_data):
-            await update.message.reply_text("Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
+            await update.message.reply_text("🚫 Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
             return
         history_data.extend(new_data)
         for i in range(len(new_data) - 5 + 1):
             train_data.append(list(history_data))
             train_labels.append(new_data[i + 4])
         train_all_models()
-        await update.message.reply_text(f"Đã cập nhật dữ liệu: {new_data}")
+        await update.message.reply_text(f"➕ Đã cập nhật dữ liệu: {new_data}")
     except Exception as e:
-        await update.message.reply_text(f"Lỗi: {e}")
+        await update.message.reply_text(f"⚠️ Lỗi: {e}")
+
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -411,66 +400,63 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     feedback = query.data
     global  user_feedback_history
     if last_prediction.get("strategy") is None or last_prediction.get('result') is None or  last_prediction.get('model')  is None :
-        await query.edit_message_text("Không thể ghi nhận phản hồi. Vui lòng thử lại sau.")
-        return
+      await query.edit_message_text("⚠️ Không thể ghi nhận phản hồi. Vui lòng thử lại sau.")
+      return
     if feedback == 'correct':
         user_feedback_history.append({'result': last_prediction['result'], 'strategy': last_prediction['strategy'],
                                       'feedback': 'correct', 'timestamp': time.time()})
         save_user_feedback('correct')
-        await query.edit_message_text("Cảm ơn! Phản hồi đã được ghi nhận.")
+        await query.edit_message_text("✅ Cảm ơn! Phản hồi đã được ghi nhận.")
     elif feedback == 'incorrect':
        user_feedback_history.append({'result': last_prediction['result'], 'strategy': last_prediction['strategy'],
                                     'feedback': 'incorrect', 'timestamp': time.time()})
        save_user_feedback('incorrect')
-       await query.edit_message_text("Cảm ơn! Tôi sẽ cố gắng cải thiện.")
+       await query.edit_message_text("❌ Cảm ơn! Tôi sẽ cố gắng cải thiện.")
     adjust_strategy_weights(feedback, last_prediction["strategy"])
 
 async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not history_data:
-        await update.message.reply_text("Chưa có dữ liệu lịch sử.")
+        await update.message.reply_text("📜 Chưa có dữ liệu lịch sử.")
     else:
-        await update.message.reply_text(f"Lịch sử gần đây: {' '.join(history_data)}")
-
+        await update.message.reply_text(f"📜 Lịch sử gần đây: {' '.join(history_data)}")
 
 async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chart_image = generate_history_chart(history_data)
     if chart_image is None:
-        await update.message.reply_text("Không có dữ liệu lịch sử để hiển thị biểu đồ.")
+        await update.message.reply_text("📊 Không có dữ liệu để hiển thị biểu đồ.")
         return
-    await update.message.reply_photo(photo=chart_image, caption='Biểu đồ kết quả.')
+    await update.message.reply_photo(photo=chart_image, caption="📈 Biểu đồ tần suất kết quả.")
 
 async def logchart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_current_history_image()
-    await update.message.reply_text("Đã lưu biểu đồ vào máy chủ.")
-
+    await update.message.reply_text("💾 Đã lưu biểu đồ vào máy chủ.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"Hướng dẫn sử dụng *{BOT_NAME}*:\n"
-        "/tx [dãy lịch sử]: Dự đoán kết quả Tài/Xỉu.\n"
-        "/add [kết quả]: Cập nhật kết quả thực tế.\n"
-        "/history : Xem lịch sử gần đây.\n"
-        "/chart : Xem biểu đồ kết quả.\n"
-        "/logchart : Lưu biểu đồ kết quả vào máy chủ.\n"
-         "/status : Xem trạng thái huấn luyện và độ chính xác bot.\n"
-        "Ví dụ:\n"
-        "- /tx t t x t x\n"
-        "- /add t x x t t", parse_mode=ParseMode.MARKDOWN)
+    help_text=  f"✨ Hướng dẫn sử dụng *{BOT_NAME}*:\n\n" \
+              f"   🎲 /tx [dãy lịch sử]: Nhận dự đoán kết quả Tài/Xỉu.\n" \
+              f"   ➕ /add [kết quả]: Cập nhật kết quả thực tế.\n" \
+              f"   📜 /history : Xem lịch sử gần đây.\n" \
+              f"   📊 /chart : Xem biểu đồ tần suất.\n" \
+              f"   💾 /logchart : Lưu biểu đồ vào máy chủ.\n" \
+              f"   🧐 /status : Xem trạng thái huấn luyện và độ chính xác của bot.\n\n" \
+               f"     _Ví dụ:_\n"  \
+              f"         - /tx t t x t x\n"  \
+              f"         - /add t x x t t"
+
+    await update.message.reply_text(help_text.format(BOT_NAME=BOT_NAME) , parse_mode=ParseMode.MARKDOWN)
+
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    training_report = calculate_training_status()
 
-     training_report =  calculate_training_status()
-
-     formatted_message = (
+    formatted_message = (
         f"🤖 Trạng thái *{BOT_NAME}*:\n\n"
         f"   📊 Tình trạng: {training_report['status']}\n"
         f"   ✅ Độ chính xác: *{training_report['accuracy']:.2f}%*\n"
         f"   🧠 Mức độ thông minh: *{training_report['intelligence']:.2f}/100*\n"
-      
-      )  #using F string format with inline variable from calculations result.
-
-     await update.message.reply_text(formatted_message,parse_mode = ParseMode.MARKDOWN)
-
+       
+    )  
+    await update.message.reply_text(formatted_message, parse_mode=ParseMode.MARKDOWN)
 
 
 if __name__ == "__main__":
