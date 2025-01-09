@@ -298,34 +298,43 @@ class GamePredictor:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # Try the user-specified selector first
+            # Attempt to get data using user selector
             elements = soup.select(selector)
+
             if elements:
                 logging.info(f"Found data with user-provided selector '{selector}' on {url}")
             else:
-                # Try common selectors as fallback. You can add to this list to increase robustness.
-                common_selectors = ['p', 'span', 'div', 'li', '.result', '#result']
+                # Fallback with some common CSS selector if user specified selector fail to get data
+                common_selectors = [
+                    'span.bet-history__item-result', # for https://68gb2025.ink/?code=10853170
+                    'p', 'span', 'div', 'li', '.result', '#result',
+                    '.text-result', 'div.item-session.has-result .text',
+                     '.history__item .result', 'div[class*="bet-history-"] .value-result',
+                ]
+
                 for sel in common_selectors:
-                    elements = soup.select(sel)
-                    if elements:
-                        selector = sel
-                        logging.warning(f"Could not find data with '{selector}', using fallback selector '{sel}' on {url}")
-                        break
+                     elements = soup.select(sel)
+                     if elements:
+                         selector = sel
+                         logging.warning(f"Could not find data with '{selector}', using fallback selector '{sel}' on {url}")
+                         break
                 else: # If no common selectors work
                     logging.error(f"Could not find data using any selector on {url}")
                     await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không tìm thấy dữ liệu trên {url} với selector đã cho, hoặc selector mặc định.")
                     return
 
-            text_data = ' '.join([el.get_text() for el in elements])
+
+            text_data = ' '.join([el.get_text().strip() for el in elements]) #Extract numbers from text
             numbers = self.extract_numbers_from_text(text_data)
-            # Record valid numbers in history data
+
+            # Record valid numbers
             if numbers:
-                for number in numbers:
+               for number in numbers:
                    self.record_game_result(number)
-                   logging.info(f"Extracted number from web: {number}")
+               logging.info(f"Extracted number from web: {numbers}")
             else:
-                logging.warning(f"No numbers found on {url}")
-                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
+               logging.warning(f"No numbers found on {url}")
+               await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
         except requests.exceptions.RequestException as e:
                 logging.error(f"Error fetching URL {url}: {str(e)}")
                 await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi khi truy cập URL: {str(e)}")
@@ -333,10 +342,11 @@ class GamePredictor:
              logging.error(f"Error collecting data from {url}: {str(e)}")
              await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lỗi không xác định: {str(e)}")
 
+
     def extract_numbers_from_text(self, text):
         """Extract numbers from text using regular expression"""
         try:
-            numbers = re.findall(r'\d+', text)  # Find all sequences of digits
+            numbers = re.findall(r'\b\d+\b', text)  # Find whole number (e.g., prevent getting 23 in 123)
             return [int(num) for num in numbers]
         except Exception as e:
             logging.error(f"Error extracting numbers: {str(e)}")
