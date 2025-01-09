@@ -57,7 +57,7 @@ calibrated_models={}
 
 # --------DATABASE Functions-----------
 def create_feedback_table():
-        """Creates the user feedback database"""
+    """Creates the user feedback database"""
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -71,14 +71,13 @@ def create_feedback_table():
     conn.commit()
     conn.close()
 def save_user_feedback(feedback):
+    """Saves user's Feedback """
 
-     """Saves user's Feedback """
-
-     conn = sqlite3.connect(DATABASE_NAME)
-     cursor = conn.cursor()
-     cursor.execute("INSERT INTO user_feedback (feedback_type) VALUES (?)", (feedback,))
-     conn.commit()
-     conn.close()
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO user_feedback (feedback_type) VALUES (?)", (feedback,))
+    conn.commit()
+    conn.close()
 
 
 
@@ -102,24 +101,24 @@ def load_data_state():
 
 
 def save_data_state():
-     """ saves to disk state for next boot of program."""
+    """ saves to disk state for next boot of program."""
 
-     global strategy_weights, last_prediction, user_feedback_history, history_data
+    global strategy_weights, last_prediction, user_feedback_history, history_data
 
-     data= { # prepare an array of values before serializing them using json
+    data= { # prepare an array of values before serializing them using json
 
        "strategy_weights": strategy_weights,
-         "last_prediction":last_prediction,
+        "last_prediction":last_prediction,
         "user_feedback_history": list(user_feedback_history),
         "history_data": list(history_data) #serialize the current state in dict to save into a file, note that json dont handle complex datatypes so using casting as type (list(), tuple() if needed )
 
      }
-     try :
-            with open(DATA_PERSISTENT_PATH,'w') as f :
-                  json.dump(data,f)  #json write object
-                  print("Persistent bot's data is saved.")
-     except Exception as e:
-           print(f"Could not persist information as an error occurred {e}")
+    try :
+        with open(DATA_PERSISTENT_PATH,'w') as f :
+            json.dump(data,f)  #json write object
+            print("Persistent bot's data is saved.")
+    except Exception as e:
+        print(f"Could not persist information as an error occurred {e}")
 
 
 def save_current_history_image():
