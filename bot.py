@@ -19,7 +19,7 @@ import warnings
 from scipy import stats
 import math
 from urllib.parse import urljoin, urlparse
-from queue import Queêu
+from queue import Queue
 
 from telegram import Update
 from telegram.ext import Updater, CommandHandler
