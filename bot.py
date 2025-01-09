@@ -1,8 +1,9 @@
 import os
 import random
 import numpy as np
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+from telegram.constants import ParseMode
 from collections import Counter, deque
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.svm import SVC
