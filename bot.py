@@ -1,5 +1,4 @@
 import os
-os.system("pip install pyTelegramBotAPI")
 os.system("pip install pandas")
 os.system("pip install scikit-learn")
 os.system("pip install requests")
