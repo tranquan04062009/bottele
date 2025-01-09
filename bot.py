@@ -38,16 +38,17 @@ warnings.filterwarnings('ignore')
 
 class GamePredictor:
     def __init__(self, bot_token):
-        self.bot = telebot.TeleBot(bot_token)
+        self.bot = telebot.TeleBot(bot_token)  # Khởi tạo bot ở đây
         self.game_data = []
         self.historical_data = pd.DataFrame()
-        
+
     def start(self):
         self.setup_handlers()  # Đảm bảo handler được setup
         self.schedule_data_collection()  # Đảm bảo thu thập dữ liệu định kỳ
         self.bot.infinity_polling()  # Bắt đầu polling để nhận tin nhắn từ người dùng
 
     def setup_handlers(self):
+        # Lưu ý dùng self.bot.message_handler thay vì bot.message_handler
         @self.bot.message_handler(commands=['start'])
         def send_welcome(message):
             self.bot.reply_to(message, "Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
@@ -120,7 +121,7 @@ Các lệnh có sẵn:
                 schedule.run_pending()
                 time.sleep(1)
 
-        schedule.every(5).minutes.do(self.collect_data)  # Đảm bảo có hàm collect_data()
+        schedule.every(1).minutes.do(self.collect_data)  # Đảm bảo có hàm collect_data()
         threading.Thread(target=run_schedule).start()
 
     def update_models(self):
