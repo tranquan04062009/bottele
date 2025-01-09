@@ -115,8 +115,6 @@ def load_data_state():
          except Exception as e:
              print(f"Could not open file  {e}")
 
-
-
 def generate_history_chart(history):
     if not history:
        return None
@@ -143,7 +141,6 @@ def calculate_probabilities(history):
     prob_xiu = counter["x"] / total
     return {"t": prob_tai, "x": prob_xiu}
 
-
 def apply_probability_threshold(prob_dict, threshold_t=0.55, threshold_x=0.45):
      return "t" if prob_dict["t"] > threshold_t else "x" if prob_dict["x"] > threshold_x else None
 
@@ -164,7 +161,10 @@ def prepare_data_for_models(history):
     if len(history) < 10:
           return None, None
 
-    encoded_history = le.fit_transform(history[-10:])
+    if len(set(history[-10:])) < 2: # Added check, validate has two labels to encode, only if less two, skip process return none as parameter
+        return None, None
+
+    encoded_history = le.fit_transform(history[-10:]) # fixed problem by parameter validation and conditional skip method and output parameter of helper with valid dataset paramater range/ input types by using `set(history[-10:]) < 2`. This skips label encoding, or any further processing , and prevents crash with dataset when those method do no have minimum validation checks that this method needed using parameter or proper return validation and method exit, if no valid dataset parameter inputs occurs by range of inputed user values using proper checks via inputed params  (` history [-10] or if input param are invalid).
     features = np.array([encoded_history],dtype=np.float64 )
     features_poly= poly.fit_transform(features)
     X = scaler.fit_transform(features_poly)
@@ -172,6 +172,7 @@ def prepare_data_for_models(history):
     y = np.array(labels ,dtype = np.int64)
 
     return X, y
+
 
 def train_all_models():
      if len(train_data) < 10:
@@ -182,15 +183,12 @@ def train_all_models():
         if features is not None and label is not None:
             X.append(features[0])
             Y.append(label[0])
-    
-     if len(X) > 1 and len(Y) > 1 :
 
+     if len(X) > 1 and len(Y) > 1 :
             X = np.array(X)
             Y= np.array(Y)
-
             for model in models_to_calibrate:
                try:
-
                  model.fit(X, Y)
                  calibrated_models[model] = model
                except ValueError as ve :
@@ -199,22 +197,26 @@ def train_all_models():
 
             model_svm.fit(X, Y)
             try:
-              model_calibrated_svm.fit(X,Y)  # Only fits the method during no data issues parameter validation. so it only fit if has expected datasets parameters, else ignore the error/exception skipping.
+              model_calibrated_svm.fit(X,Y) #  train with try parameter so will train and try if valid type values/ parameters occur in that execution of fit operation by validation  . else it skips without breaking or producing exception errors .
+
             except ValueError as ve:
-               print (f"Model Calibration Exception : {ve} skip model training")  # message and avoid crashing bot
+               print (f"Model Calibration Exception : {ve} skip model training")
 
 def ml_prediction(history):
     if len(train_data) < 10:
         return statistical_prediction(history)
-    features, label = prepare_data_for_models(history)
+    features, label = prepare_data_for_models(history)  # will output only None when missing proper datasets parameter using  the validation step from inside `prepare_data_for_models()`, as early exist function by validation step parameter in `history` datasets if are only  `t` or `x` ( single label for data parameters ).
+
     if features is None:
-       return None
-    try : # wrap method prediction for specific models, in case those raise some error.
+       return statistical_prediction(history) # here use fallback if preparation returned  `None/False/null values`, for parameters. using helper with all safety parameter check , return safe and graceful with this approach a valid dataset fallback
+
+    try : # protect  method predict of `CalibratedClassifierCV`
       model_svm_prob = model_calibrated_svm.predict_proba(features)
       svm_prediction_label = model_calibrated_svm.predict(features)
-    except Exception as e : # and skip all others calls in scope of that try call ( all data parameter models) and return only fallback output instead skip error/ crash
+    except Exception as e :
          print (f"SVM prediction Model Exception  {e}, fallback Statistical method...")
          return statistical_prediction(history)
+
 
     log_prob, log_label = _predict_probabilty(calibrated_models.get(model_logistic, model_logistic), features)
     sgd_prob, sgd_label = _predict_probabilty(calibrated_models.get(model_sgd, model_sgd), features)
@@ -241,13 +243,13 @@ def ml_prediction(history):
 
     avg_probabilty = {"t": average_prob_t, "x": average_prob_x}
     svm_label = le.inverse_transform(svm_prediction_label)[0]
-  
+
     predicted_outcome = apply_probability_threshold(avg_probabilty, 0.53, 0.47)
     if predicted_outcome:
       return predicted_outcome
     else :
+      return svm_label
 
-     return svm_label
 
 def _predict_probabilty(model, features):
     if hasattr(model, 'predict_proba'):
@@ -256,10 +258,8 @@ def _predict_probabilty(model, features):
               labels = le.inverse_transform(model.predict(features))
               prob_dictionary = dict(zip(le.classes_, probs))
               return prob_dictionary, labels[0]
-
           except ValueError as ve :
                print (f"Model issue with probability : {ve} for {model}")
-
                return {"t": float('NaN'), "x": float('NaN')}, None
     return {"t": float('NaN'), "x": float('NaN')}, None
 
@@ -327,11 +327,13 @@ def combined_prediction(history):
             last_prediction.update({'strategy':strategy , 'result':cluster_prediction})
             return cluster_prediction
 
-     ml_pred = ml_prediction(history)
+     ml_pred = ml_prediction(history) # uses `prepare_data_for_models()` so, all early checks by dataset also passed as early exists /checks parameters inside method.
+
      if ml_pred:
         strategy="machine_learning"
         last_prediction.update( { 'strategy': strategy,'result' : ml_pred})
         return ml_pred
+
 
      probability_dict =calculate_probabilities(history)
      probability_pred = apply_probability_threshold(probability_dict)
@@ -427,10 +429,11 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
        if not all(item in ["t", "x"] for item in new_data):
           await update.message.reply_text("🚫 Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
           return
-    
+
        for item in new_data :
          if item not in ["t", "x"]:
             await update.message.reply_text("🚫 Dữ liệu không hợp lệ. Kết quả chỉ chứa 't' (Tài) hoặc 'x' (Xỉu).")
+
             return
 
        history_data.extend(new_data)
@@ -522,5 +525,4 @@ if __name__ == "__main__":
      app.add_handler(CallbackQueryHandler(button))
      print("Bot đang hoạt động...")
      app.run_polling()
-
      print ("Bot đã dừng.")
