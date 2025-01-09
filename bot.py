@@ -37,7 +37,7 @@ WEB_DATA_FILE = 'web_data.txt'
 # Global application object
 application = None
 
-# --- Helper Functions ---
+# --- Helper Functions --
 
 def create_feedback_keyboard(prediction_id):
     """Create an inline keyboard for feedback."""
