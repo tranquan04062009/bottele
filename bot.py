@@ -120,6 +120,41 @@ async def handle_url(update: Update, context: CallbackContext):
         logging.error(f"Error in handle_url: {str(e)}")
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Có lỗi xảy ra khi xử lý lệnh URL: {e}")
 
+
+async def handle_stats(update: Update, context: CallbackContext):
+    """Handles the /stats command to show simple statistics"""
+    try:
+       if not predictor.historical_data.empty:
+         total_count = len(predictor.historical_data)
+         correct_count = len(predictor.historical_data[predictor.historical_data['feedback'] == 'correct'])
+         incorrect_count = len(predictor.historical_data[predictor.historical_data['feedback'] == 'incorrect'])
+
+         stats_text = f"""
+📊 Thống kê dữ liệu:
+Tổng số lượng dự đoán: {total_count}
+Số dự đoán chính xác: {correct_count}
+Số dự đoán không chính xác: {incorrect_count}
+"""
+         await context.bot.send_message(chat_id=update.effective_chat.id, text=stats_text)
+       else:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Không có dữ liệu để hiển thị thống kê.")
+    except Exception as e:
+        logging.error(f"Error in handle_stats: {str(e)}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra khi hiển thị thống kê")
+
+
+async def handle_history(update: Update, context: CallbackContext):
+    """Handles the /history command"""
+    try:
+      if not predictor.historical_data.empty:
+           history = predictor.historical_data.tail(10).to_string()
+           await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Lịch sử dữ liệu gần nhất (10):\n {history}")
+      else:
+           await context.bot.send_message(chat_id=update.effective_chat.id, text="Không có lịch sử dự đoán để hiển thị.")
+    except Exception as e:
+        logging.error(f"Error in handle_history: {str(e)}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lỗi hiển thị lịch sử dự đoán.")
+
 async def handle_prediction(update: Update, context: CallbackContext):
     """Handles the /predict command"""
     try:
@@ -658,7 +693,9 @@ def main():
     application.add_handler(CommandHandler("url", handle_url))
     application.add_handler(CommandHandler("predict", handle_prediction))
     application.add_handler(CommandHandler("tx", handle_tx))
-
+    application.add_handler(CommandHandler("stats", handle_stats))
+    application.add_handler(CommandHandler("history", handle_history))
+    
     logging.info("Bot is starting...")  # Notify that the bot is starting
     predictor.start_bot()  # Start the bot
     logging.info("Bot has started successfully.")
