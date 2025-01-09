@@ -6,3 +6,5 @@ scikit-learn
 requests 
 beautifulsoup4 
 scipy
+matplotlib
+sqlite3-binary
