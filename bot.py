@@ -20,7 +20,8 @@ from scipy import stats
 import math
 from urllib.parse import urljoin, urlparse
 from queue import Queue
-from datetime import datetime
+from datetime import datetime # Missing import
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
 
@@ -35,6 +36,101 @@ DATA_FILE = 'game_data.csv'
 MODEL_UPDATE_INTERVAL_MINUTES = 10
 WEB_DATA_FILE = 'web_data.txt'
 
+# Global application object
+application = None 
+
+# --- Handler Functions ---
+
+def start(update: Update, context: CallbackContext):
+    """Handles the /start command"""
+    try:
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
+    except Exception as e:
+        logging.error(f"Error in start handler: {str(e)}")
+
+def help(update: Update, context: CallbackContext):
+    """Handles the /help command"""
+    try:
+        help_text = """
+Các lệnh có sẵn:
+/predict - Dự đoán kết quả tiếp theo
+/stats - Xem thống kê chi tiết
+/pattern - Phân tích mẫu
+/trend - Xem xu hướng hiện tại
+/analyze - Phân tích toàn diện
+/history - Xem lịch sử dự đoán
+/accuracy - Xem độ chính xác
+/url <web_url> <selector> - Thu thập dữ liệu từ trang web
+            """
+        context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
+    except Exception as e:
+        logging.error(f"Error in help handler: {str(e)}")
+
+
+def handle_url(update: Update, context: CallbackContext):
+    """Handles the /url command"""
+    try:
+         parts = update.message.text.split(' ', 2)
+         if len(parts) < 3:
+              context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp URL và CSS selector. Ví dụ: `/url <url> <css selector>`")
+              return
+         url, selector = parts[1], parts[2]
+         predictor.collect_data_from_url(url, selector, update, context)
+         context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đang thu thập dữ liệu từ {url} sử dụng selector `{selector}`...")
+    except IndexError:
+         context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp một URL hợp lệ và selector sau lệnh /url.")
+    except Exception as e:
+        logging.error(f"Error in handle_url: {str(e)}")
+
+def handle_prediction(update: Update, context: CallbackContext):
+    """Handles the /predict command"""
+    try:
+        if len(predictor.historical_data) < 10:
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Cần ít nhất 10 số để dự đoán chính xác.")
+            return
+
+        numbers = predictor.historical_data['result'].tolist()
+            # Tổng hợp các phương pháp dự đoán
+        math_pred = predictor.mathematical_prediction(numbers)
+        stat_analysis = predictor.statistical_analysis(numbers)
+        ml_pred = predictor.machine_learning_prediction(numbers)
+        patterns = predictor.pattern_analysis(numbers)
+        evolution_result = predictor.evolutionary_algorithm(numbers)
+        opportunities = predictor.opportunity_analysis(numbers)
+
+            # Create report
+        report = f"""
+📊 Báo cáo dự đoán:
+
+1. Phân tích toán học:
+- Trung bình: {math_pred['basic_stats']['mean']:.2f}
+- Độ lệch chuẩn: {math_pred['basic_stats']['std']:.2f}
+- Khoảng tin cậy: [{math_pred['confidence_interval'][0]:.2f}, {math_pred['confidence_interval'][1]:.2f}]
+
+2. Phân tích thống kê:
+- Xu hướng: {stat_analysis['trend_analysis']['trend_direction']}
+- Độ mạnh xu hướng: {stat_analysis['trend_analysis']['trend_strength']:.2f}
+
+3. Dự đoán máy học:
+- Ensemble: {ml_pred['ensemble_prediction']:.2f}
+- Độ tin cậy: {ml_pred['confidence']['confidence_score']:.2f}
+
+4. Mẫu phổ biến:
+{patterns['repeating_patterns']}
+
+5. Cơ hội:
+- Điểm cơ hội: {opportunities['opportunity_score']:.2f}/100
+- Xu hướng: {opportunities['current_trend']['direction']}
+- Độ mạnh: {opportunities['current_trend']['strength']:.2f}
+
+🎯 Dự đoán cuối cùng: {ml_pred['ensemble_prediction']:.2f}
+⚠️ Độ tin cậy: {ml_pred['confidence']['confidence_score']*100:.2f}%
+            """
+        context.bot.send_message(chat_id=update.effective_chat.id, text=report)
+    except Exception as e:
+        logging.error(f"Error in handle_prediction: {str(e)}")
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
+
 class GamePredictor:
     def __init__(self, bot_token):
          self.application = ApplicationBuilder().token(bot_token).build()
@@ -48,46 +144,11 @@ class GamePredictor:
          self.scaler = StandardScaler()
          self.load_game_data()
 
-    def start(self):
-        self.setup_handlers()
+    def start_bot(self):
         self.schedule_data_collection()
         self.schedule_model_updates()
-        self.application.run_polling()
+        application.run_polling() # Use global application object
 
-    def setup_handlers(self):
-        self.application.add_handler(CommandHandler("start", self.send_welcome))
-        self.application.add_handler(CommandHandler("help", self.send_help))
-        self.application.add_handler(CommandHandler("url", self.handle_url))
-        self.application.add_handler(CommandHandler("predict", self.handle_prediction))
-
-    def send_welcome(self, update: Update, context: CallbackContext):
-        context.bot.send_message(chat_id=update.effective_chat.id, text="Bot dự đoán game đã sẵn sàng. Sử dụng /help để xem hướng dẫn.")
-
-    def send_help(self, update: Update, context: CallbackContext):
-        help_text = """
-Các lệnh có sẵn:
-/predict - Dự đoán kết quả tiếp theo
-/stats - Xem thống kê chi tiết
-/pattern - Phân tích mẫu
-/trend - Xem xu hướng hiện tại
-/analyze - Phân tích toàn diện
-/history - Xem lịch sử dự đoán
-/accuracy - Xem độ chính xác
-/url <web_url> <selector> - Thu thập dữ liệu từ trang web
-            """
-        context.bot.send_message(chat_id=update.effective_chat.id, text=help_text)
-
-    def handle_url(self, update: Update, context: CallbackContext):
-         try:
-            parts = update.message.text.split(' ', 2)
-            if len(parts) < 3:
-                context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp URL và CSS selector. Ví dụ: `/url <url> <css selector>`")
-                return
-            url, selector = parts[1], parts[2]
-            self.collect_data_from_url(url, selector, update, context)
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"Đang thu thập dữ liệu từ {url} sử dụng selector `{selector}`...")
-         except IndexError:
-            context.bot.send_message(chat_id=update.effective_chat.id, text="Vui lòng cung cấp một URL hợp lệ và selector sau lệnh /url.")
 
     def load_game_data(self):
         """Load game data from CSV file"""
@@ -122,7 +183,6 @@ Các lệnh có sẵn:
         self.save_game_data() # Save to file
         logging.info(f"Recorded game result: {result} at {timestamp}")
 
-
     def collect_data_from_url(self, url, selector, update: Update, context: CallbackContext):
       """Thu thập và xử lý dữ liệu từ URL"""
       try:
@@ -150,11 +210,11 @@ Các lệnh có sẵn:
 
             text_data = ' '.join([el.get_text() for el in elements])
             numbers = self.extract_numbers_from_text(text_data)
-             # Record valid numbers in history data
+            # Record valid numbers in history data
             if numbers:
-              for number in numbers:
-                self.record_game_result(number)
-                logging.info(f"Extracted number from web: {number}")
+                for number in numbers:
+                    self.record_game_result(number)
+                    logging.info(f"Extracted number from web: {number}")
             else:
                 logging.warning(f"No numbers found on {url}")
                 context.bot.send_message(chat_id=update.effective_chat.id, text=f"Không có số nào được tìm thấy trên {url}")
@@ -501,59 +561,23 @@ Các lệnh có sẵn:
         score -= volatility['historical_volatility']
         
         return max(min(score, 100), 0)  # Normalize to 0-100
-    
-    def handle_prediction(self, update: Update, context: CallbackContext):
-        """Xử lý lệnh dự đoán"""
-        try:
-            if len(self.historical_data) < 10:
-                context.bot.send_message(chat_id=update.effective_chat.id, text="Cần ít nhất 10 số để dự đoán chính xác.")
-                return
 
-            numbers = self.historical_data['result'].tolist()
-            # Tổng hợp các phương pháp dự đoán
-            math_pred = self.mathematical_prediction(numbers)
-            stat_analysis = self.statistical_analysis(numbers)
-            ml_pred = self.machine_learning_prediction(numbers)
-            patterns = self.pattern_analysis(numbers)
-            evolution_result = self.evolutionary_algorithm(numbers)
-            opportunities = self.opportunity_analysis(numbers)
 
-            # Create report
-            report = f"""
-📊 Báo cáo dự đoán:
-
-1. Phân tích toán học:
-- Trung bình: {math_pred['basic_stats']['mean']:.2f}
-- Độ lệch chuẩn: {math_pred['basic_stats']['std']:.2f}
-- Khoảng tin cậy: [{math_pred['confidence_interval'][0]:.2f}, {math_pred['confidence_interval'][1]:.2f}]
-
-2. Phân tích thống kê:
-- Xu hướng: {stat_analysis['trend_analysis']['trend_direction']}
-- Độ mạnh xu hướng: {stat_analysis['trend_analysis']['trend_strength']:.2f}
-
-3. Dự đoán máy học:
-- Ensemble: {ml_pred['ensemble_prediction']:.2f}
-- Độ tin cậy: {ml_pred['confidence']['confidence_score']:.2f}
-
-4. Mẫu phổ biến:
-{patterns['repeating_patterns']}
-
-5. Cơ hội:
-- Điểm cơ hội: {opportunities['opportunity_score']:.2f}/100
-- Xu hướng: {opportunities['current_trend']['direction']}
-- Độ mạnh: {opportunities['current_trend']['strength']:.2f}
-
-🎯 Dự đoán cuối cùng: {ml_pred['ensemble_prediction']:.2f}
-⚠️ Độ tin cậy: {ml_pred['confidence']['confidence_score']*100:.2f}%
-            """
-
-            context.bot.send_message(chat_id=update.effective_chat.id, text=report)
-            
-        except Exception as e:
-            logging.error(f"Prediction error: {str(e)}")
-            context.bot.send_message(chat_id=update.effective_chat.id, text="Có lỗi xảy ra trong quá trình dự đoán.")
-
-if __name__ == "__main__":
+def main():
+    """Main entry point for the bot"""
+    global application
     bot_token = "7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0"
     predictor = GamePredictor(bot_token)
-    predictor.start()
+    application = predictor.application # set the application globally
+
+    # Add command handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help))
+    application.add_handler(CommandHandler("url", handle_url))
+    application.add_handler(CommandHandler("predict", handle_prediction))
+    
+    predictor.start_bot()
+
+
+if __name__ == "__main__":
+    main()
