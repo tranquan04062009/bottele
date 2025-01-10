@@ -19,7 +19,7 @@ from torch.utils.data import Dataset, DataLoader
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
 DATA_PATH = "data"
 MODEL_PATH = "model.pth"
 SCALER_PATH = "scaler.pkl"
