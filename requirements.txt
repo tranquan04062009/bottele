@@ -1,9 +1,8 @@
-python-telegram-bot==20.0
-numpy==1.23.0
-schedule
-pandas
-scikit-learn
+python-telegram-bot
+Pillow
+pytesseract
 requests
-beautifulsoup4
-scipy
-matplotlib
+numpy
+torch
+scikit-learn
+opencv-python
