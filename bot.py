@@ -7,7 +7,7 @@ from io import BytesIO
 import socket
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 from PIL import Image
 import pytesseract
@@ -23,7 +23,7 @@ import cv2
 import pickle
 from torch.utils.data import Dataset, DataLoader
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 DATA_PATH = "data"
 MODEL_PATH = "model.pth"
 SCALER_PATH = "scaler.pkl"
@@ -278,41 +278,41 @@ async def handle_image(update, context):
     await update.message.reply_text(message, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def feedback_handler(update, context):
-  query = update.callback_query
-  await query.answer()
-  if 'last_feature_vector' not in context.user_data or 'last_prediction' not in context.user_data:
-      await query.message.reply_text("Không có dữ liệu phản hồi, gửi hình trước.")
-      return
-  label = 1 if context.user_data['last_prediction'] == "Tài" else 0 if query.data == 'correct' else 1
-  await query.message.reply_text("Cảm ơn phản hồi! Bot sẽ học.")
-  bot_data = context.application.bot_data
-  bot_data.history_data.append(context.user_data['last_feature_vector'])
-  bot_data.history_labels.append(label)
-  model, scaler = train_model(bot_data.model, bot_data.scaler, np.array(bot_data.history_data), bot_data.history_labels)
-  bot_data.model = model
-  bot_data.scaler = scaler
-  save_model_and_scaler(model, scaler)
-  save_bot_data(bot_data)
+    query = update.callback_query
+    await query.answer()
+    if 'last_feature_vector' not in context.user_data or 'last_prediction' not in context.user_data:
+        await query.message.reply_text("Không có dữ liệu phản hồi, gửi hình trước.")
+        return
+    label = 1 if context.user_data['last_prediction'] == "Tài" else 0 if query.data == 'correct' else 1
+    await query.message.reply_text("Cảm ơn phản hồi! Bot sẽ học.")
+    bot_data = context.application.bot_data
+    bot_data.history_data.append(context.user_data['last_feature_vector'])
+    bot_data.history_labels.append(label)
+    model, scaler = train_model(bot_data.model, bot_data.scaler, np.array(bot_data.history_data), bot_data.history_labels)
+    bot_data.model = model
+    bot_data.scaler = scaler
+    save_model_and_scaler(model, scaler)
+    save_bot_data(bot_data)
 
 def main():
-  if not TOKEN:
-    logging.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
-    return
+    if not TOKEN:
+        logging.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
+        return
 
-  bot_data = load_bot_data()
-  if not bot_data.model:
+    bot_data = load_bot_data()
+    if not bot_data.model:
       input_size = 40
       model, scaler = load_or_create_model_and_scaler(input_size)
       bot_data.model = model
       bot_data.scaler = scaler
       save_bot_data(bot_data)
 
-  application = Application.builder().token(TOKEN).bot_data(bot_data).build()
-  application.add_handler(CommandHandler("start", start))
-  application.add_handler(MessageHandler(Filters.photo, handle_image))
-  application.add_handler(CallbackQueryHandler(feedback_handler, pattern='correct|incorrect'))
-  application.run_polling()
+    application = Application.builder().token(TOKEN).bot_data(bot_data).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_image))
+    application.add_handler(CallbackQueryHandler(feedback_handler, pattern='correct|incorrect'))
+    application.run_polling()
 
 
 if __name__ == '__main__':
-  main()
+    main()
