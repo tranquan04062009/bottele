@@ -3587,6 +3587,13 @@ async def main():
 
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
-if __name__ == "__main__":
-   import asyncio
-   asyncio.run(main())
+if __name__ == '__main__':
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+      loop.run_until_complete(main())
+
+    finally:
+         loop.close()
