@@ -1,13 +1,18 @@
 import logging
 import re
 import asyncio
+import os
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 import aiohttp
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 
-# Thay thế bằng token bot của bạn
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+# Load biến môi trường từ file .env
+load_dotenv()
+
+# Lấy token bot từ biến môi trường
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Cấu hình logging
 logging.basicConfig(
