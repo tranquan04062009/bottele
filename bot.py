@@ -703,7 +703,7 @@ async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("🔄 Đã cập nhật dữ liệu cầu vào file.")
     except Exception as e:
         print(f"Could not save cau data during update command: {e}")
-        await update.message.reply_text("🔄 Không thể cập nhật  dữ liệu cầu.")
+        await update.message.reply_text("🔄 Không thể cập nhật dữ liệu cầu.")
 
 
 async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -770,8 +770,8 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
         history_data.extend(new_data)
         for i in range(len(new_data)):
-          if len(history_data) >= 5+i:
-            train_data.append(list(history_data[:len(history_data)-i]))
+           if len(history_data) >= 5 + i :
+            train_data.append(list(history_data[:len(history_data)-i]) )
             train_labels.append(new_data[i] if i < len(new_data) else new_data[-1])
         train_all_models()
         await update.message.reply_text(f"➕ Đã cập nhật dữ liệu: {new_data}")
