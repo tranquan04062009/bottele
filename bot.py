@@ -3,7 +3,7 @@ import re
 import asyncio
 import os
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, CallbackContext
 import aiohttp
 from bs4 import BeautifulSoup
 
@@ -48,7 +48,7 @@ async def check_testflight_status(session, url):
         logger.exception(f"An unexpected error occurred while checking URL {url}: {e}")
         return None
 
-async def send_update(chat_id, app_name, available, url):
+async def send_update(bot, chat_id, app_name, available, url):
     if available:
         message = f"🔥 Ứng dụng/game '{app_name}' trên TestFlight đã có chỗ trống! Nhanh tay tải về: {url}"
         try:
@@ -56,7 +56,7 @@ async def send_update(chat_id, app_name, available, url):
         except Exception as e:
             logger.exception(f"An error occurred while sending message: {e}")
 
-async def check_and_notify(chat_id, url, session):
+async def check_and_notify(chat_id, url):
     while True:
         if chat_id not in tracked_apps or url not in tracked_apps[chat_id]:
              logger.info(f"Stop tracking, chat_id {chat_id} or url {url} not found")
@@ -67,6 +67,7 @@ async def check_and_notify(chat_id, url, session):
                 del tracked_tasks[(chat_id,url)]
              return
         try:
+          async with aiohttp.ClientSession() as session:
             available = await check_testflight_status(session, url)
             if available is None:
                 logger.error(f"Failed to check status for URL: {url}, Skipped.")
@@ -75,9 +76,12 @@ async def check_and_notify(chat_id, url, session):
             
             app_name = tracked_apps[chat_id][url][0]
             if available:
-               await send_update(chat_id, app_name, available, url)
+               await send_update(Application.bot, chat_id, app_name, available, url)
             
             await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            logger.info(f"Task check_and_notify for URL {url} has been cancelled")
+            return
         except Exception as e:
             logger.exception(f"An unexpected error occurred in check_and_notify for URL {url}: {e}")
             await asyncio.sleep(0)
@@ -103,9 +107,8 @@ async def autocheck(update: Update, context: CallbackContext):
     
     # Khởi chạy task cho người dùng và url
     if (chat_id, url) not in tracked_tasks:
-        session = aiohttp.ClientSession()
-        task = asyncio.create_task(check_and_notify(chat_id, url, session))
-        tracked_tasks[(chat_id, url)] = (task,session)
+        task = asyncio.create_task(check_and_notify(chat_id, url))
+        tracked_tasks[(chat_id, url)] = task
 
 
 async def stop_tracking(update: Update, context: CallbackContext):
@@ -117,9 +120,8 @@ async def stop_tracking(update: Update, context: CallbackContext):
     url = context.args[0]
     if chat_id in tracked_apps and url in tracked_apps[chat_id]:
         if (chat_id, url) in tracked_tasks:
-            task,session = tracked_tasks[(chat_id, url)]
+            task = tracked_tasks[(chat_id, url)]
             task.cancel()  # Hủy bỏ task
-            await session.close()
             del tracked_tasks[(chat_id,url)]
         del tracked_apps[chat_id][url]
         if not tracked_apps[chat_id]:
@@ -132,18 +134,16 @@ async def error_handler(update: Update, context: CallbackContext):
     logger.error(f"Update {update} caused error {context.error}")
 
 async def main():
-    global bot
-    # Tạo hàng đợi cho các update
-    update_queue = asyncio.Queue()
-    updater = Updater(BOT_TOKEN, update_queue=update_queue)
-    bot = updater.bot
-    dispatcher = updater.dispatcher
-
-    dispatcher.add_handler(CommandHandler("autocheck", autocheck))
-    dispatcher.add_handler(CommandHandler("stop", stop_tracking))
-    dispatcher.add_error_handler(error_handler)
-
-    await updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        application.add_handler(CommandHandler("autocheck", autocheck))
+        application.add_handler(CommandHandler("stop", stop_tracking))
+        application.add_error_handler(error_handler)
+        
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except Exception as e:
+      logger.exception(f"An unexpected error occurred in main: {e}")
 
 if __name__ == '__main__':
     asyncio.run(main())
