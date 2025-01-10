@@ -3580,12 +3580,20 @@ async def send_otp_with_all(update: Update, context: CallbackContext, phone: str
           if 'error' in value.lower():
                await update.message.reply_text(f"Lỗi gửi đến {key} :: {value}",  parse_mode='Markdown') # outputs a markdown report with errors per each services
 
-async def main():
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("spam", spam))
+ async def main():
+      """
+          Setups and run a telegram bot and avoids direct  await `application.run_polling()` method , since now start  polling method gets implemented  directly at global scope on try ...catch from startup logic from `if __name__`  and a telegram callback will receive incoming requests properly for telegram calls, without conflicts on loops calls in library implementations (used as method of safety, now explicit rather implicit way that was making troubles)
 
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+      """
+    application = Application.builder().token(TOKEN).build()
+   application.add_handler(CommandHandler("start", start))
+   application.add_handler(CommandHandler("spam", spam))
+     
+ # Use start_polling instead of run_polling to not await start itself
+   await application.start_polling(allowed_updates=Update.ALL_TYPES) # non blocking so code will start without the need of `run_until_complete`.
+
+   # keep running even if it closes as suggested to have bot in active forever mode, also using  the start method avoids asyncio context collision during start
+ await application.updater.idle() # ensures code runs forever and also solves possible double implicit starts telegram was trying internally
 
 if __name__ == '__main__':
     import asyncio
