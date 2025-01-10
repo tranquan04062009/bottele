@@ -6,6 +6,10 @@ from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 import aiohttp
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+
+# Load biến môi trường từ file .env
+load_dotenv()
 
 # Lấy token bot từ biến môi trường
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -42,9 +46,7 @@ async def check_testflight_status(session, url):
 async def send_update(chat_id, app_name, available, url):
     if available:
         message = f"🔥 Ứng dụng/game '{app_name}' trên TestFlight đã có chỗ trống! Nhanh tay tải về: {url}"
-    else:
-        message = f"⚠️ Ứng dụng/game '{app_name}' trên TestFlight đã đầy!"
-    await bot.send_message(chat_id=chat_id, text=message)
+        await bot.send_message(chat_id=chat_id, text=message)
 
 
 async def check_and_notify(chat_id, url, session):
@@ -53,20 +55,15 @@ async def check_and_notify(chat_id, url, session):
         available = await check_testflight_status(session, url)
         if available is None:
             logger.error(f"Failed to check status for URL: {url}, Skipped.")
-            await asyncio.sleep(30)
+            await asyncio.sleep(10)
             continue
         
         app_name = tracked_apps[chat_id][url][0]
-        previous_available = tracked_apps[chat_id][url][2] if len(tracked_apps[chat_id][url]) > 2 else None
-
-        if previous_available is None or available != previous_available:
-            await send_update(chat_id, app_name, available, url)
-            tracked_apps[chat_id][url] = (app_name, url, available)
-        else:
-            logger.info(f"No change in status for {url}, skipping notification")
+        if available:
+           await send_update(chat_id, app_name, available, url)
+           # Không cần lưu lại trạng thái, chỉ cần thông báo khi có chỗ
         
-        await asyncio.sleep(30)
-
+        await asyncio.sleep(10)
 
 async def autocheck(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
