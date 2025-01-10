@@ -6,10 +6,6 @@ from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 import aiohttp
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
-
-# Load biến môi trường từ file .env
-load_dotenv()
 
 # Lấy token bot từ biến môi trường
 BOT_TOKEN = os.getenv("BOT_TOKEN")
