@@ -41,7 +41,6 @@ last_prediction = {'result': None, 'strategy': None, 'model': None}
 user_feedback_history = deque(maxlen=1000)
 sentimental_analysis= {}
 
-
 model_logistic = LogisticRegression(random_state=42, solver='liblinear',C = 1.1 , penalty = "l1")
 model_svm = SVC(kernel='linear', probability=True, random_state=42 , C=1.4)
 model_sgd = SGDClassifier(loss='log_loss', random_state=42 , alpha=0.01)
