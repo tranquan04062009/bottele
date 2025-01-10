@@ -5,6 +5,13 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
 from collections import Counter, deque
+import os
+import random
+import numpy as np
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+from telegram.constants import ParseMode
+from collections import Counter, deque
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.svm import SVC
 from sklearn.preprocessing import LabelEncoder, StandardScaler, PolynomialFeatures
@@ -40,6 +47,7 @@ strategy_weights = {'deterministic': 0.75, 'cluster': 0.70, 'machine_learning': 
 last_prediction = {'result': None, 'strategy': None, 'model': None}
 user_feedback_history = deque(maxlen=1000)
 sentimental_analysis= {}
+
 
 model_logistic = LogisticRegression(random_state=42, solver='liblinear',C = 1.1 , penalty = "l1")
 model_svm = SVC(kernel='linear', probability=True, random_state=42 , C=1.4)
@@ -85,6 +93,7 @@ def load_cau_data():
                history_data = deque(loaded_data, maxlen=600)
         except Exception as e:
               print(f"Could not open file for cau data:  {e}")
+
 def save_cau_data():
    global history_data
    try:
@@ -134,6 +143,7 @@ def calculate_probabilities(history):
     prob_tai = counter["t"] / total
     prob_xiu = counter["x"] / total
     return {"t": prob_tai, "x": prob_xiu}
+
 def apply_probability_threshold(prob_dict, threshold_t=0.55, threshold_x=0.45):
      return "t" if prob_dict["t"] > threshold_t else "x" if prob_dict["x"] > threshold_x else None
 def statistical_prediction(history, bias=0.5):
@@ -152,7 +162,10 @@ def prepare_data_for_models(history):
           return None, None
     if len(set(history[-10:])) < 2:
           return None, None
-    encoded_history = le.fit_transform(history[-10:])
+    try:
+      encoded_history = le.fit_transform(history[-10:])
+    except ValueError:
+         return None,None
     features = np.array([encoded_history],dtype=np.float64 )
     features_poly= poly.fit_transform(features)
     X = scaler.fit_transform(features_poly)
@@ -178,7 +191,6 @@ def train_all_models():
                except ValueError as ve :
                  print(f" model {model} error for data parameters : {ve}" )
                  pass
-
             model_svm.fit(X, Y)
             try:
                model_calibrated_svm.fit(X,Y)
@@ -230,7 +242,6 @@ def _predict_probabilty(model, features):
                print (f"Model issue with probability : {ve} for {model}")
                return {"t": float('NaN'), "x": float('NaN')}, None
     return {"t": float('NaN'), "x": float('NaN')}, None
-
 def cluster_analysis(history):
     if len(history) < 5:
          return None
@@ -469,7 +480,6 @@ def calculate_training_status():
         "intelligence" : intelligence_level if  intelligence_level <=100 else 100
     }
     return status_report
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
      start_text =  "✨ Chào mừng bạn đến với *{BOT_NAME}*!\n\n" \
                 "🎲 Sử dụng /tx [dãy lịch sử] để nhận dự đoán Tài/Xỉu.\n" \
@@ -552,7 +562,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_feedback_history.append({'result': last_prediction['result'], 'strategy': last_prediction['strategy'],
                                       'feedback': 'correct', 'timestamp': time.time()})
         save_user_feedback('correct')
-        await query.edit_message_text("✅ Cảm ơn! Phản hồi đã được ghi nhận.")
+                await query.edit_message_text("✅ Cảm ơn! Phản hồi đã được ghi nhận.")
     elif feedback == 'incorrect':
         user_feedback_history.append({'result': last_prediction['result'], 'strategy': last_prediction['strategy'],
                                    'feedback': 'incorrect', 'timestamp': time.time()})
