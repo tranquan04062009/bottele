@@ -34,7 +34,7 @@ first_names = ['Nam', 'Tuấn', 'Hương', 'Linh', 'Long', 'Duy']
 def generate_random_name():
     """Generates a random Vietnamese name."""
     last_name = random.choice(last_names)
-    middle_name = random.choice(middle_names) if random.choice([True, False]) else ''  # Optional middle name
+    middle_name = random.choice(middle_names) if random.choice([True, False]) else ''
     first_name = random.choice(first_names)
     return f"{last_name} {middle_name} {first_name}".strip()
 
@@ -47,13 +47,10 @@ def format_device_id(device_id):
     """Formats a device ID string."""
     return f"{device_id[:8]}-{device_id[8:12]}-{device_id[12:16]}-{device_id[16:20]}-{device_id[20:]}"
 
-
 def validate_phone_number(phone: str) -> bool:
     """Validates a Vietnamese phone number format."""
     pattern = r'^0\d{9}$'
     return bool(re.match(pattern, phone))
-
-
 
 ########################  All OTP  Functions
 
@@ -3502,89 +3499,94 @@ otp_functions = [
 spam_message_id: int | None = None
 spam_phone_number: str | None = None
 
+
 async def start(update: Update, context: CallbackContext) -> None:
     """Handles the /start command."""
-    await update.message.reply_text('Chào bạn! Gửi cho tôi số điện thoại bằng lệnh /spam để gửi otp tới hàng loạt hệ thống.')
+    await update.message.reply_text(
+        "Chào bạn! Gửi cho tôi số điện thoại bằng lệnh /spam để gửi otp tới hàng loạt hệ thống.\n\n"
+        "Ví dụ: /spam 0912345678"
+    )
 
 
 async def spam(update: Update, context: CallbackContext) -> None:
     """Handles the /spam command and initiates OTP sending."""
     global spam_phone_number, spam_message_id
-    if not context.args:
-        await update.message.reply_text("Vui lòng cung cấp số điện thoại sau lệnh /spam. Ví dụ: /spam 0912345678")
-        return
 
+    if not context.args:
+        await update.message.reply_text("Vui lòng cung cấp số điện thoại sau lệnh /spam. Ví dụ: `/spam 0912345678`", parse_mode='Markdown')
+        return
+  
     phone = context.args[0]
     if not validate_phone_number(phone):
         await update.message.reply_text("Số điện thoại không hợp lệ! Hãy nhập một số điện thoại hợp lệ có 10 chữ số và bắt đầu bằng 0.")
         return
-    spam_phone_number = phone  # Store the phone number on global so later is available
-    message = await update.message.reply_text(f'Đang gửi OTP tới số điện thoại {phone}...\n[  0% ]')  # Starting progress with 0
-    spam_message_id = message.message_id # also storing global messageID for telegram methods such to be updated every time there is an state
-   
-    await send_otp_with_all(update, context, phone)
+    spam_phone_number = phone # Store the valid phone for cross process usage during all request stages
+
+    # Reply with progress
+    message = await update.message.reply_text(f'Đang gửi OTP tới số điện thoại {phone}...\n[  0% ]')
+    spam_message_id = message.message_id # get  ID  of the  progress message, so later this ID will be useful for edition to display updated status
+
+    await send_otp_with_all(update, context, phone) # Send otps requests for every available function
+
+
 
 
 async def send_otp_with_all(update: Update, context: CallbackContext, phone: str) -> None:
     """Executes OTP functions, updates the progress and reports results."""
-    global spam_message_id, spam_phone_number
+    global spam_message_id, spam_phone_number # call to get message progress of the execution
 
-    total_functions = len(otp_functions)
-    results = {}
-    for index, func in enumerate(otp_functions):
+    total_functions = len(otp_functions) # amount of func for calculing % and progress message for bot telegram 
+    results = {}  # storing result and logs  of every service
+
+    for index, func in enumerate(otp_functions): # iterate over each services requests for phone number for OTP 
         try:
-            if func == send_otp_via_pico:
-                 result = await func(phone)
-                 results[func.__name__] = str(result)
-            elif func == send_otp_via_moca or func == send_otp_via_hoangphuc : 
-               result = str(func(phone))
-               results[func.__name__] = result
-            elif func == send_otp_via_tima or func ==  send_otp_via_BACHHOAXANH  or  func ==  send_otp_via_paynet or func ==  send_otp_via_Routine or  func == send_otp_via_phuclong:
+           if func == send_otp_via_pico: # for cases like this we avoid "await" calls since pico api does call multiple requests that uses synchronous mode by design and must not stop bot's proccess
+                result = await func(phone) # for requests of that type a direct await funciton does apply
+                results[func.__name__] = str(result)
+           elif func == send_otp_via_moca or func == send_otp_via_hoangphuc or  func ==  send_otp_via_phuclong:  #these use direct calls 
+               result = str(func(phone)) # because such services must called synchronous we must convert every sync output from each individual response as string format to use proper flow  
+               results[func.__name__] = result  # and save the result 
+           elif func == send_otp_via_tima or func ==  send_otp_via_BACHHOAXANH  or  func ==  send_otp_via_paynet or func ==  send_otp_via_Routine: # as  the above sync requests
                 result = str(func(phone))
                 results[func.__name__] = result
-            else:
+           else: # all other remaining requests  we use an async approach 
               result = str(await func(phone))
               results[func.__name__] = result
-            
-        except Exception as e:
-          results[func.__name__] =  str(f"An error occurred for {func.__name__}:: {e}")
-    
-        progress_percent = math.floor((index + 1) / total_functions * 100) # calculo
-        progress_bar = '[' + '█' * (progress_percent // 10) + ' ' * (10 - progress_percent // 10) + f' {progress_percent}% ]'  # visual for %
-        
-        #Update status
-        if spam_message_id and spam_phone_number == phone :  # avoid sending progress of another different call , and also checks if global is defined or its none . 
-                try :
-                     await context.bot.edit_message_text( # update progress in bot on each iteration of requests (progress will be called in between for requests made in series)
-                      chat_id=update.message.chat_id,
-                       message_id=spam_message_id,
-                       text=f"Đang gửi OTP tới số điện thoại {phone}...\n{progress_bar}" 
-                      )
-                except Exception as editError: # incase if update on previous message did fail
-                     print(f"error at update of text message :: {editError}")
-    
-    success_check = all('error' not in results[key].lower() for key in results) 
 
+        except Exception as e: #incase an error is thrown for a function, saving data for report
+            results[func.__name__] = str(f"An error occurred for {func.__name__} :: {e}")
+       
+        progress_percent = math.floor((index + 1) / total_functions * 100) # progress based on total_func  to calculate a % progress in string and convert for visual proper display
+        progress_bar = '[' + '█' * (progress_percent // 10) + ' ' * (10 - progress_percent // 10) + f' {progress_percent}% ]'  # this represent as a graphical progress in text based to output telegram properly
+
+
+        #Update status every loop iteration on telegram bot so the user see how many task has executed by displaying proper % and progress in telegram (avoid showing different progress in messages)
+        if spam_message_id and spam_phone_number == phone:
+             try :
+                await context.bot.edit_message_text( # update in current message not sending new to avoid messages floods
+                     chat_id=update.message.chat_id, # get chat ID in the same call so we reply in same place we get the `/spam `
+                      message_id=spam_message_id, # using a stored id value  on `spam`
+                      text=f"Đang gửi OTP tới số điện thoại {phone}...\n{progress_bar}"
+                 )
+             except Exception as editError:  # error while sending update
+                  print(f"error at update of text message :: {editError}") # output on console just for us know and not to stop execution , but better than no output on failing editing process telegram call 
+
+
+    #success output
+    success_check = all('error' not in results[key].lower() for key in results)
     if success_check:
-         await update.message.reply_text(f'Đã gửi OTP thành công cho số điện thoại {phone}')
-    else:
-        for key, value in results.items():
-           if 'error' in value.lower():
-            await update.message.reply_text(f"Failed in {key}: {value}")
-            
-            
+         await update.message.reply_text(f'Đã gửi OTP thành công cho số điện thoại {phone}') # final positive msg , if all requests do well.
+    else: # list all fails in messages if not all requests have worked
+        for key, value in results.items(): # iterating and checking only error strings not successes , 
+          if 'error' in value.lower():
+               await update.message.reply_text(f"Lỗi gửi đến {key} :: {value}",  parse_mode='Markdown') # outputs a markdown report with errors per each services
 
 async def main():
-  try:
-   application = Application.builder().token(TOKEN).build()
-   application.add_handler(CommandHandler("start", start))
-   application.add_handler(CommandHandler("spam", spam))
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("spam", spam))
 
-   await application.run_polling(allowed_updates=Update.ALL_TYPES)
-  except RuntimeError as e :
-    if str(e) == 'This event loop is already running' :
-        print('telegram event loop started already ') #ignore it. is intended behaviour , asyncio cannot rerun a loop that started and its running,
-    else: # this are unexcepted error we want to know
-         raise
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+
 if __name__ == "__main__":
-  asyncio.get_event_loop().run_until_complete(main())
+     main()
