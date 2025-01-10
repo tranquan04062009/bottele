@@ -2686,7 +2686,7 @@ def send_otp_via_mafccomvn(sdt):
         'MAFC_101_DID': '0850209877ab2800359aa259a3e967ad4cadfc21e816fad5a0d1b1d90c52fabddaf256eceaa66ba8850711bba3c09b25084a2ae3c8063800f8d5e8ee925ae9ecf081258c38f27590e9879625c7624c6033304425b50ad0443a41fabf9652f15fc34d093f802fe31082aa893b4c121ec9',
         'MAFCed66693a184': '0850209877ab2000035bb49d85d36c1714180eb222a6a5c6b20c2e3328516f0da52a6fabdd5acf9e081c5884c8113000a63479a1b533672c96c6790276b673af3e57c251be970cc54abb2a88d001192bb815cb83ac72e7084a193babac4e2f33',
         }
-     headers = {
+    headers = {
         'accept': 'application/json, text/javascript, */*; q=0.01',
         'accept-language': 'vi,en-US;q=0.9,en;q=0.8',
         'content-type': 'application/json',
