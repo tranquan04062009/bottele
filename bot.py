@@ -133,7 +133,9 @@ async def error_handler(update: Update, context: CallbackContext):
 
 async def main():
     global bot
-    updater = Updater(BOT_TOKEN)
+    # Tạo hàng đợi cho các update
+    update_queue = asyncio.Queue()
+    updater = Updater(BOT_TOKEN, update_queue=update_queue)
     bot = updater.bot
     dispatcher = updater.dispatcher
 
