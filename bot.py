@@ -3,16 +3,17 @@ import re
 import asyncio
 import os
 from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackContext
+from telegram.ext import Application, ApplicationBuilder, CommandHandler, CallbackContext
 import aiohttp
 from bs4 import BeautifulSoup
+from typing import Dict, Tuple, Optional
 
 # Lấy token bot từ biến môi trường
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
 
 # Kiểm tra xem BOT_TOKEN có tồn tại không
 if not BOT_TOKEN:
-    print("Error: BOT_TOKEN environment variable is not set.")
+    logging.error("Error: BOT_TOKEN environment variable is not set.")
     exit(1)
 
 # Cấu hình logging
@@ -24,10 +25,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Lưu trữ thông tin theo dõi
-tracked_apps = {}
-tracked_tasks = {}
+tracked_apps: Dict[int, Dict[str, Tuple[str, str]]] = {}
+tracked_tasks: Dict[Tuple[int, str], asyncio.Task] = {}
 
-async def check_testflight_status(session, url):
+async def check_testflight_status(session: aiohttp.ClientSession, url: str) -> Optional[bool]:
     try:
         logger.info(f"Checking URL: {url}")
         async with session.get(url, timeout=10) as response:
@@ -48,22 +49,21 @@ async def check_testflight_status(session, url):
         logger.exception(f"An unexpected error occurred while checking URL {url}: {e}")
         return None
 
-async def send_update(bot, chat_id, app_name, available, url):
+async def send_update(bot: Application, chat_id: int, app_name: str, available: bool, url: str):
     if available:
         message = f"🔥 Ứng dụng/game '{app_name}' trên TestFlight đã có chỗ trống! Nhanh tay tải về: {url}"
         try:
-            await bot.send_message(chat_id=chat_id, text=message)
+            await bot.bot.send_message(chat_id=chat_id, text=message)
         except Exception as e:
             logger.exception(f"An error occurred while sending message: {e}")
 
-async def check_and_notify(chat_id, url):
+async def check_and_notify(chat_id: int, url: str):
     while True:
         if chat_id not in tracked_apps or url not in tracked_apps[chat_id]:
              logger.info(f"Stop tracking, chat_id {chat_id} or url {url} not found")
              if (chat_id, url) in tracked_tasks:
-                task,session = tracked_tasks[(chat_id, url)]
+                task = tracked_tasks[(chat_id, url)]
                 task.cancel()
-                await session.close()
                 del tracked_tasks[(chat_id,url)]
              return
         try:
@@ -135,15 +135,15 @@ async def error_handler(update: Update, context: CallbackContext):
 
 async def main():
     try:
-        application = Application.builder().token(BOT_TOKEN).build()
-        
+        application = ApplicationBuilder().token(BOT_TOKEN).build()
+
         application.add_handler(CommandHandler("autocheck", autocheck))
         application.add_handler(CommandHandler("stop", stop_tracking))
         application.add_error_handler(error_handler)
         
         await application.run_polling(allowed_updates=Update.ALL_TYPES)
     except Exception as e:
-      logger.exception(f"An unexpected error occurred in main: {e}")
+        logger.exception(f"An unexpected error occurred in main: {e}")
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.get_event_loop().run_until_complete(main())
