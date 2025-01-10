@@ -6,7 +6,6 @@ import random
 import string
 import os
 import re
-import asyncio
 from typing import List, Dict, Callable, Any
 from telegram import Update, Message
 from telegram.ext import Application, CommandHandler, CallbackContext
@@ -3589,4 +3588,5 @@ async def main():
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
-     main()
+   import asyncio
+   asyncio.run(main())
