@@ -129,6 +129,10 @@ def load_cau_data() -> None:
             with open(HISTORY_DATA_PATH, "r") as f:
                 loaded_data = json.load(f)
                 history_data = deque(loaded_data, maxlen=600)
+        except json.JSONDecodeError as e:
+            print(f"Error decoding cau data JSON: {e}, file may be empty or corrupted. Creating new file.")
+            history_data=deque(maxlen=600)
+            save_cau_data()
         except Exception as e:
             print(f"Error loading cau data: {e}")
 
@@ -166,9 +170,11 @@ def load_data_state() -> None:
                     "sentimental_analysis", sentimental_analysis
                 )
                 print("Bot data state loaded from file.")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding data state JSON: {e}, file may be empty or corrupted. Creating new file.")
+            save_data_state()
         except Exception as e:
-            print(f"Error loading data state: {e}")
-
+             print(f"Error loading data state: {e}")
 
 def save_data_state() -> None:
     """Saves the bot's state data to a JSON file."""
@@ -297,7 +303,7 @@ def train_all_models() -> None:
                 model_calibrated_svm.fit(X, Y)
             else:
                 print(
-                    f"Model Calibration skipped due single class data:{set(Y)} for training"
+                    f"Model Calibration skipped due to single class data:{set(Y)} for training"
                 )
         except ValueError as ve:
             print(f"Model Calibration error: {ve} skip model training")
@@ -768,10 +774,9 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
         history_data.extend(new_data)
         for i in range(len(new_data)):
-          if len(list(history_data)) >= 5+i:
-             train_data.append(list(history_data[:len(history_data)-i]))
-             train_labels.append(new_data[i] if i < len(new_data) else new_data[-1])
-
+           if len(list(history_data)) >= 5 + i:
+              train_data.append(list(history_data[:len(history_data) - i]))
+              train_labels.append(new_data[i] if i < len(new_data) else new_data[-1] )
         train_all_models()
         await update.message.reply_text(f"➕ Đã cập nhật dữ liệu: {new_data}")
     except Exception as e:
