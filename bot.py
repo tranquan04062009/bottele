@@ -20,15 +20,6 @@ if not TOKEN:
     print("Please set the TELEGRAM_BOT_TOKEN environment variable.")
     sys.exit(1)
 
-import requests
-import time
-import json
-import sys
-import random
-import string
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import threading
 # apiby @dothanh1110 (tôn trọng tý thì đừng xoá)
 # web: ctdotech.tech
 
