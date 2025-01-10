@@ -555,7 +555,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_feedback_history.append({'result': last_prediction['result'], 'strategy': last_prediction['strategy'],
                                       'feedback': 'correct', 'timestamp': time.time()})
         save_user_feedback('correct')
-                await query.edit_message_text("✅ Cảm ơn! Phản hồi đã được ghi nhận.")
+        await query.edit_message_text("✅ Cảm ơn! Phản hồi đã được ghi nhận.")
     elif feedback == 'incorrect':
         user_feedback_history.append({'result': last_prediction['result'], 'strategy': last_prediction['strategy'],
                                    'feedback': 'incorrect', 'timestamp': time.time()})
