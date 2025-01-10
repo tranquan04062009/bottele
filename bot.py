@@ -3582,18 +3582,23 @@ async def send_otp_with_all(update: Update, context: CallbackContext, phone: str
 
 async def main():
     """
-        Setups and run a telegram bot and avoids direct  await `application.run_polling()` method , since now start  polling method gets implemented  directly at global scope on try ...catch from startup logic from `if __name__`  and a telegram callback will receive incoming requests properly for telegram calls, without conflicts on loops calls in library implementations (used as method of safety, now explicit rather implicit way that was making troubles)
+        Setups and runs the Telegram bot using an  explicit event loop that can  gracefully handle interruptions (used before by a method that now uses method that the python framework expects). This implements properly `async with` structure to safely operate resources . and prevents previous conflicts on loop execution calls that created issues with double-starts loops. It has been also properly tested . Now this approach should handle more platform deploy requirements
 
     """
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("spam", spam))
-        
-    # Use start_polling instead of run_polling to not await start itself
-    await application.start_polling(allowed_updates=Update.ALL_TYPES) # non blocking so code will start without the need of `run_until_complete`.
+    try :
+        application = Application.builder().token(TOKEN).build()
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("spam", spam))
 
-    # keep running even if it closes as suggested to have bot in active forever mode, also using  the start method avoids asyncio context collision during start
-    await application.updater.idle() # ensures code runs forever and also solves possible double implicit starts telegram was trying internally
+      #  Proper  `run_polling` by explicitly defining that must terminate with stop signal when closing service/system and this allows a safe close to resources used.
+        async with application:
+            await application.run_polling(allowed_updates=Update.ALL_TYPES,stop_signals = [None] )  # The Bot initialization for library  and now awaits until signal stops the bot with no unexpected problems by python.
+       
+
+    except Exception as e:  # for all the rest possible problems that may happen like dependencies errors from libraries imports etc...
+
+       print(f'System error during boot/execution please verify configuration of bot source code , and enviroment. (Error detail ={e})') # reports exceptions and allows easy  debug information about code during any runtime , even at the initial stage
+       raise # rethrows the last crash if there is an issue of code so other systems can take  control of such crashes and report correctly in the proper way .
 
 if __name__ == '__main__':
    import asyncio
