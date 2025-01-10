@@ -3587,10 +3587,4 @@ async def main():
     else: # this are unexcepted error we want to know
          raise
 if __name__ == "__main__":
-   try:
-        asyncio.run(main())
-   except RuntimeError as e:
-      if str(e) == 'This event loop is already running' :
-           print('telegram event loop started already ') #ignore it. is intended behaviour , asyncio cannot rerun a loop that started and its running,
-      else: # this are unexcepted error we want to know
-          raise
+    main()
