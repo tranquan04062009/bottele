@@ -1,7 +1,3 @@
 python-telegram-bot
-Pillow
-pytesseract
 requests
-numpy
-torch
-scikit-learn
+urllib3
