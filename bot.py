@@ -60,10 +60,11 @@ def load_bot_data() -> BotData:
 def save_bot_data(bot_data: BotData):
     try:
       with open(BOT_DATA_PATH, 'wb') as f:
-        pickle.dump(bot_data, f)
+          pickle.dump(bot_data, f)
       logging.info("Saved bot data to file.")
     except (IOError, OSError, pickle.PickleError) as e:
         logging.error(f"Error saving bot data to file {e}")
+
 
 def download_image(url: str, folder: str) -> Optional[str]:
     os.makedirs(folder, exist_ok=True)
@@ -100,6 +101,7 @@ def enhance_image(path: str) -> Optional[str]:
       logging.error(f"Error enhancing image: {e}")
       return None
 
+
 def extract_numbers_from_image(path: str) -> Optional[List[int]]:
     enhanced_path = enhance_image(path)
     if not enhanced_path:
@@ -114,8 +116,7 @@ def extract_numbers_from_image(path: str) -> Optional[List[int]]:
     except Exception as e: #catch other generic error related to Image or Tesseract call
       logging.error(f"Unexpected Error extract_numbers_from_image {e}")
       return None
-
-
+        
 def analyze_path(path: str) -> Optional[List[int]]:
     numbers = extract_numbers_from_image(path)
     if not numbers:
@@ -123,51 +124,50 @@ def analyze_path(path: str) -> Optional[List[int]]:
     if len(numbers) == 1:
         return [0]
     return [1 if numbers[i+1] > numbers[i] else -1 if numbers[i+1] < numbers[i] else 0 for i in range(len(numbers) - 1)]
-
-
+    
 def create_feature_vector(numbers: List[int], path: List[int]) -> np.ndarray:
-  padded_numbers = numbers + [0] * (20 - len(numbers)) if len(numbers) < 20 else numbers[:20]
-  padded_path = path + [0] * (20 - len(path)) if len(path) < 20 else path[:20]
-  return np.array(padded_numbers + padded_path)
-
+    padded_numbers = numbers + [0] * (20 - len(numbers)) if len(numbers) < 20 else numbers[:20]
+    padded_path = path + [0] * (20 - len(path)) if len(path) < 20 else path[:20]
+    return np.array(padded_numbers + padded_path)
+    
 def validate_input_type(arg: any, expected_type: any, arg_name: str) -> None:
     if not isinstance(arg, expected_type):
        raise TypeError(f"{arg_name} must be {expected_type}, but get {type(arg)}")
 
 class TaiXiuDataset(Dataset):
-  def __init__(self, X: np.ndarray, y: List[int]):
-      validate_input_type(X, np.ndarray, "X")
-      validate_input_type(y, list, "y")
+    def __init__(self, X: np.ndarray, y: List[int]):
+        validate_input_type(X, np.ndarray, "X")
+        validate_input_type(y, list, "y")
+        self.X = torch.tensor(X, dtype=torch.float32)
+        self.y = torch.tensor(y, dtype=torch.long)
 
-      self.X = torch.tensor(X, dtype=torch.float32)
-      self.y = torch.tensor(y, dtype=torch.long)
-  def __len__(self):
-      return len(self.X)
+    def __len__(self) -> int:
+        return len(self.X)
 
-  def __getitem__(self, idx):
-      return self.X[idx], self.y[idx]
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.X[idx], self.y[idx]
     
 class TaiXiuPredictor(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_rate=0.2):
-      super().__init__()
-      validate_input_type(input_size, int, "input_size")
-      validate_input_type(hidden_size, int, "hidden_size")
-      validate_input_type(num_layers, int, "num_layers")
-      validate_input_type(output_size, int, "output_size")
-      validate_input_type(dropout_rate, float, "dropout_rate")
-      self.hidden_size = hidden_size
-      self.num_layers = num_layers
-      self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout_rate)
-      self.fc = nn.Linear(hidden_size, output_size)
-      self.dropout = nn.Dropout(dropout_rate)
+  def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_rate=0.2):
+    super().__init__()
+    validate_input_type(input_size, int, "input_size")
+    validate_input_type(hidden_size, int, "hidden_size")
+    validate_input_type(num_layers, int, "num_layers")
+    validate_input_type(output_size, int, "output_size")
+    validate_input_type(dropout_rate, float, "dropout_rate")
+    self.hidden_size = hidden_size
+    self.num_layers = num_layers
+    self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout_rate)
+    self.fc = nn.Linear(hidden_size, output_size)
+    self.dropout = nn.Dropout(dropout_rate)
 
-    def forward(self, x):
-      h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-      c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-      out, _ = self.lstm(x, (h0, c0))
-      out = self.dropout(out[:, -1, :])
-      out = self.fc(out)
-      return out
+  def forward(self, x):
+    h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+    c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+    out, _ = self.lstm(x, (h0, c0))
+    out = self.dropout(out[:, -1, :])
+    out = self.fc(out)
+    return out
 
 
 def train_model(model, scaler, X, y):
@@ -217,75 +217,79 @@ def train_model(model, scaler, X, y):
   return model, scaler
 
 def load_or_create_model_and_scaler(input_size: int) -> Tuple[nn.Module, StandardScaler]:
-    if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
-        try:
-            with open(SCALER_PATH, 'rb') as f:
-                scaler = pickle.load(f)
-            model = torch.load(MODEL_PATH)
-            logging.info("Loaded model and scaler from file")
-            return model, scaler
-        except (IOError, OSError, pickle.PickleError, RuntimeError) as e:
-          logging.error(f"Error loading model or scaler, creating a new one {e}")
-    hidden_size = 128
-    num_layers = 2
-    output_size = 2
-    model = TaiXiuPredictor(input_size, hidden_size, num_layers, output_size, dropout_rate=0.3)
-    scaler = StandardScaler()
-    logging.info("Created new model and scaler")
-    return model, scaler
+  if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
+    try:
+      with open(SCALER_PATH, 'rb') as f:
+        scaler = pickle.load(f)
+      model = torch.load(MODEL_PATH)
+      logging.info("Loaded model and scaler from file")
+      return model, scaler
+    except (IOError, OSError, pickle.PickleError, RuntimeError) as e:
+       logging.error(f"Error loading model or scaler, creating a new one {e}")
+  hidden_size = 128
+  num_layers = 2
+  output_size = 2
+  model = TaiXiuPredictor(input_size, hidden_size, num_layers, output_size, dropout_rate=0.3)
+  scaler = StandardScaler()
+  logging.info("Created new model and scaler")
+  return model, scaler
   
 def save_model_and_scaler(model, scaler):
-  try:
-    with open(SCALER_PATH, 'wb') as f:
-        pickle.dump(scaler, f)
-    torch.save(model, MODEL_PATH)
-    logging.info("Saved model and scaler to file")
-  except (IOError, OSError, pickle.PickleError, RuntimeError)  as e:
-    logging.error(f"Error saving model and scaler {e}")
+    try:
+        with open(SCALER_PATH, 'wb') as f:
+            pickle.dump(scaler, f)
+        torch.save(model, MODEL_PATH)
+        logging.info("Saved model and scaler to file")
+    except (IOError, OSError, pickle.PickleError, RuntimeError) as e:
+        logging.error(f"Error saving model and scaler {e}")
 
 def predict_next_outcome(model, scaler, path) -> Tuple[Optional[str], Optional[float]]:
-    numbers = extract_numbers_from_image(path)
-    path_analysis = analyze_path(path)
-    if not numbers or path_analysis is None:
-        return None, None
-    feature_vector = create_feature_vector(numbers, path_analysis)
-    scaled_vector = scaler.transform(feature_vector.reshape(1, -1))
-    with torch.no_grad():
-      input_tensor = torch.tensor(scaled_vector, dtype=torch.float32).unsqueeze(1)
-      output = model(input_tensor)
-      _, predicted = torch.max(output, 1)
-    prediction_str = "Tài" if predicted.item() == 1 else "Xỉu"
-    probabilities = torch.nn.functional.softmax(output, dim=1)[0].tolist()
-    return prediction_str, max(probabilities)
+  numbers = extract_numbers_from_image(path)
+  path_analysis = analyze_path(path)
+  if not numbers or path_analysis is None:
+      return None, None
+  feature_vector = create_feature_vector(numbers, path_analysis)
+  scaled_vector = scaler.transform(feature_vector.reshape(1, -1))
+  with torch.no_grad():
+    input_tensor = torch.tensor(scaled_vector, dtype=torch.float32).unsqueeze(1)
+    output = model(input_tensor)
+    _, predicted = torch.max(output, 1)
+  prediction_str = "Tài" if predicted.item() == 1 else "Xỉu"
+  probabilities = torch.nn.functional.softmax(output, dim=1)[0].tolist()
+  return prediction_str, max(probabilities)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
   await update.message.reply_text('Chào mừng đến với bot dự đoán Tài Xỉu! Gửi ảnh lịch sử để bắt đầu.')
-    
+
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-  path = download_image(update.message.photo[-1].file_path, DATA_PATH)
-  if not path:
-      await update.message.reply_text("Lỗi tải ảnh.")
-      return
-  prediction, confidence = predict_next_outcome(context.application.bot_data.model, context.application.bot_data.scaler, path)
-  if not prediction:
-        await update.message.reply_text("Lỗi dự đoán, không có đủ dữ liệu đầu vào.")
-        return
-  context.user_data['last_path'] = path
-  context.user_data['last_prediction'] = prediction
-  numbers = extract_numbers_from_image(path)
-  path_analysis = analyze_path(path)
-  context.user_data['last_feature_vector'] = create_feature_vector(numbers, path_analysis)
-  message = (f"**Phân tích kết quả:**\n"
-              f"- Các số đã nhận dạng: `{numbers}`\n"
-              f"- Đường đi (1 tăng, -1 giảm, 0 ngang): `{path_analysis}`\n\n"
-              f"**Kết quả dự đoán:**\n"
-              f"- Dự đoán: **{prediction}**\n"
-              f"- Độ tin cậy: `{confidence * 100:.2f}%`")
-  keyboard = [[InlineKeyboardButton("✅ Đúng", callback_data='correct'),
-                InlineKeyboardButton("❌ Sai", callback_data='incorrect')]]
-  await update.message.reply_text(message, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-  
+    try:
+      path = download_image(update.message.photo[-1].file_path, DATA_PATH)
+      if not path:
+          await update.message.reply_text("Lỗi tải ảnh.")
+          return
+      prediction, confidence = predict_next_outcome(context.application.bot_data.model, context.application.bot_data.scaler, path)
+      if not prediction:
+            await update.message.reply_text("Lỗi dự đoán, không có đủ dữ liệu đầu vào.")
+            return
+      context.user_data['last_path'] = path
+      context.user_data['last_prediction'] = prediction
+      numbers = extract_numbers_from_image(path)
+      path_analysis = analyze_path(path)
+      context.user_data['last_feature_vector'] = create_feature_vector(numbers, path_analysis)
+      message = (f"**Phân tích kết quả:**\n"
+                f"- Các số đã nhận dạng: `{numbers}`\n"
+                f"- Đường đi (1 tăng, -1 giảm, 0 ngang): `{path_analysis}`\n\n"
+                f"**Kết quả dự đoán:**\n"
+                f"- Dự đoán: **{prediction}**\n"
+                f"- Độ tin cậy: `{confidence * 100:.2f}%`")
+      keyboard = [[InlineKeyboardButton("✅ Đúng", callback_data='correct'),
+                  InlineKeyboardButton("❌ Sai", callback_data='incorrect')]]
+      await update.message.reply_text(message, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception as e:
+       logging.error(f"Unexpected exception when handle image: {e}")
+       await update.message.reply_text("Lỗi không xác định khi xử lý ảnh. Xin thử lại.")
+
 
 async def feedback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
   query = update.callback_query
@@ -304,27 +308,29 @@ async def feedback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
   save_model_and_scaler(model, scaler)
   save_bot_data(bot_data)
 
-def main() -> None:
-    if not TOKEN:
-        logging.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
-        return
 
-    bot_data = load_bot_data()
-    if not bot_data.model:
+def main() -> None:
+  if not TOKEN:
+      logging.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
+      return
+  
+  bot_data = load_bot_data()
+  if not bot_data.model:
       input_size = 40
       model, scaler = load_or_create_model_and_scaler(input_size)
       bot_data.model = model
       bot_data.scaler = scaler
       save_bot_data(bot_data)
-    
-    application = Application.builder().token(TOKEN).build()
-    application.bot_data = bot_data # Set bot_data with  application.bot_data variable
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_image))
-    application.add_handler(CallbackQueryHandler(feedback_handler, pattern='correct|incorrect'))
+  application = Application.builder().token(TOKEN).build()
+  application.bot_data = bot_data
+  
+  application.add_handler(CommandHandler("start", start))
+  application.add_handler(MessageHandler(filters.PHOTO, handle_image)) # use lower case filter class
+  application.add_handler(CallbackQueryHandler(feedback_handler, pattern='correct|incorrect'))
+  
+  application.run_polling()
 
-    application.run_polling()
 
 if __name__ == '__main__':
-  main()
+    main()
