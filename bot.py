@@ -134,7 +134,6 @@ def calculate_probabilities(history):
     prob_tai = counter["t"] / total
     prob_xiu = counter["x"] / total
     return {"t": prob_tai, "x": prob_xiu}
-
 def apply_probability_threshold(prob_dict, threshold_t=0.55, threshold_x=0.45):
      return "t" if prob_dict["t"] > threshold_t else "x" if prob_dict["x"] > threshold_x else None
 def statistical_prediction(history, bias=0.5):
@@ -242,6 +241,7 @@ def _predict_probabilty(model, features):
                print (f"Model issue with probability : {ve} for {model}")
                return {"t": float('NaN'), "x": float('NaN')}, None
     return {"t": float('NaN'), "x": float('NaN')}, None
+
 def cluster_analysis(history):
     if len(history) < 5:
          return None
@@ -499,11 +499,11 @@ async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔄 Đã cập nhật dữ liệu cầu vào file.")
     except Exception as e:
        print(f"Could not save cau data during update command: {e}")
-       await update.message.reply_text("🔄 Không thể cập nhật dữ liệu cầu.") # if parameter return issue show to user .
+       await update.message.reply_text("🔄 Không thể cập nhật dữ liệu cầu.")
 async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-      save_data_state()
-      await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
+        save_data_state()
+        await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
     except Exception as e:
        print(f"Error during saving data state {e}")
        await update.message.reply_text("💾 Không thể lưu dữ liệu")
