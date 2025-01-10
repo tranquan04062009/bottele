@@ -703,11 +703,11 @@ async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("🔄 Đã cập nhật dữ liệu cầu vào file.")
     except Exception as e:
         print(f"Could not save cau data during update command: {e}")
-        await update.message.reply_text("🔄 Không thể cập nhật dữ liệu cầu.")
+        await update.message.reply_text("🔄 Không thể cập nhật  dữ liệu cầu.")
 
 
 async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles  the /save command."""
+    """Handles the /save command."""
     try:
         save_data_state()
         await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
@@ -726,15 +726,16 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
         history = user_input.split()
-        if not all(item in ["t", "x"] for item in history):
-            await update.message.reply_text(
-                "🚫 Dữ liệu không hợp lệ. Lịch sử chỉ chứa 't' (Tài) hoặc 'x' (Xỉu)."
-            )
-            return
+        for item in history:
+           if item not in ["t", "x"]:
+               await update.message.reply_text(
+                 "🚫 Dữ liệu không hợp lệ. Lịch sử chỉ chứa 't' (Tài) hoặc 'x' (Xỉu)."
+               )
+               return
         history_data.extend(history)
         if len(history) >= 5:
-            train_data.append(list(history_data))
-            train_labels.append(history[-1])
+             train_data.append(list(history_data))
+             train_labels.append(history[-1])
         train_all_models()
         result = combined_prediction(list(history_data))
         last_prediction["model"] = BOT_NAME
@@ -769,9 +770,9 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
         history_data.extend(new_data)
         for i in range(len(new_data)):
-            if len(history_data) >= 5 + i:
-                train_data.append(list(history_data[:len(history_data)-i]))
-                train_labels.append(new_data[i] if i < len(new_data) else new_data[-1])
+          if len(history_data) >= 5+i:
+            train_data.append(list(history_data[:len(history_data)-i]))
+            train_labels.append(new_data[i] if i < len(new_data) else new_data[-1])
         train_all_models()
         await update.message.reply_text(f"➕ Đã cập nhật dữ liệu: {new_data}")
     except Exception as e:
