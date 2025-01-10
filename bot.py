@@ -707,10 +707,10 @@ async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the /save command."""
+    """Handles  the /save command."""
     try:
         save_data_state()
-        await update.message.reply_text("💾 Đã lưu dữ liệu  bot vào file.")
+        await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
     except Exception as e:
         print(f"Error during saving data state: {e}")
         await update.message.reply_text("💾 Không thể lưu dữ liệu.")
@@ -733,8 +733,8 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         history_data.extend(history)
         if len(history) >= 5:
-             train_data.append(list(history_data))
-             train_labels.append(history[-1])
+            train_data.append(list(history_data))
+            train_labels.append(history[-1])
         train_all_models()
         result = combined_prediction(list(history_data))
         last_prediction["model"] = BOT_NAME
@@ -769,10 +769,9 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
         history_data.extend(new_data)
         for i in range(len(new_data)):
-            if len(list(history_data)) >= 5+i:
-                train_data.append(list(history_data[:len(history_data) -i ]))
-                train_labels.append(new_data[i] if i < len(new_data) else new_data[-1] )
-
+            if len(history_data) >= 5 + i:
+                train_data.append(list(history_data[:len(history_data)-i]))
+                train_labels.append(new_data[i] if i < len(new_data) else new_data[-1])
         train_all_models()
         await update.message.reply_text(f"➕ Đã cập nhật dữ liệu: {new_data}")
     except Exception as e:
