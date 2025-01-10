@@ -3587,4 +3587,4 @@ async def main():
     else: # this are unexcepted error we want to know
          raise
 if __name__ == "__main__":
-    main()
+  asyncio.get_event_loop().run_until_complete(main())
