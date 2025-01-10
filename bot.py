@@ -1,14 +1,13 @@
 import os
 import random
 import numpy as np
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
-from collections import Counter, deque
 import json
 import time
 import sqlite3
+from collections import Counter, deque
 from io import BytesIO
 import matplotlib.pyplot as plt
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -23,6 +22,7 @@ from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.calibration import CalibratedClassifierCV
+from typing import List, Dict, Tuple, Optional, Any
 
 # --- Constants and Environment Variables ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -35,13 +35,16 @@ DATA_PERSISTENT_PATH = "bot_data.json"
 HISTORY_DATA_PATH = "cau.json"
 
 # --- Data Structures ---
-history_data = deque(maxlen=600)
-train_data = []
-train_labels = []
-user_feedback_history = deque(maxlen=1000)
-sentimental_analysis = {}
-last_prediction = {"result": None, "strategy": None, "model": None}
-
+history_data: deque = deque(maxlen=600)
+train_data: List[List[str]] = []
+train_labels: List[str] = []
+user_feedback_history: deque = deque(maxlen=1000)
+sentimental_analysis: Dict[str, Any] = {}
+last_prediction: Dict[str, Optional[str]] = {
+    "result": None,
+    "strategy": None,
+    "model": None,
+}
 
 # --- ML Models and Setup ---
 le = LabelEncoder()
@@ -62,7 +65,7 @@ model_calibrated_svm = CalibratedClassifierCV(model_svm, method="isotonic", cv=5
 model_kmeans = KMeans(n_clusters=2, n_init=10, random_state=42)
 
 models_to_calibrate = [model_logistic, model_sgd, model_rf, model_gb]
-calibrated_models = {}
+calibrated_models: Dict[Any, Any] = {}
 
 # --- Weights for Strategy Adjustments ---
 feedback_weights = {"correct": 1.3, "incorrect": -0.90}
@@ -85,9 +88,9 @@ strategy_weights = {
     "reading_opportunity": 0.35,
 }
 
-
 # --- Database Functions ---
-def create_feedback_table():
+def create_feedback_table() -> None:
+    """Creates the user feedback table in the database if it doesn't exist."""
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     cursor.execute(
@@ -103,7 +106,8 @@ def create_feedback_table():
     conn.close()
 
 
-def save_user_feedback(feedback):
+def save_user_feedback(feedback: str) -> None:
+    """Saves user feedback to the database."""
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     try:
@@ -116,9 +120,9 @@ def save_user_feedback(feedback):
     finally:
         conn.close()
 
-
 # --- Data Loading/Saving Functions ---
-def load_cau_data():
+def load_cau_data() -> None:
+    """Loads historical game data from a JSON file."""
     global history_data
     if os.path.exists(HISTORY_DATA_PATH):
         try:
@@ -129,7 +133,8 @@ def load_cau_data():
             print(f"Error loading cau data: {e}")
 
 
-def save_cau_data():
+def save_cau_data() -> None:
+    """Saves historical game data to a JSON file."""
     global history_data
     try:
         with open(HISTORY_DATA_PATH, "w") as f:
@@ -139,7 +144,8 @@ def save_cau_data():
         print(f"Error saving cau data: {e}")
 
 
-def load_data_state():
+def load_data_state() -> None:
+    """Loads bot state data from a JSON file."""
     global strategy_weights, last_prediction, user_feedback_history, history_data, calibrated_models, train_data, train_labels, sentimental_analysis
     if os.path.exists(DATA_PERSISTENT_PATH):
         try:
@@ -163,7 +169,9 @@ def load_data_state():
         except Exception as e:
             print(f"Error loading data state: {e}")
 
-def save_data_state():
+
+def save_data_state() -> None:
+    """Saves the bot's state data to a JSON file."""
     global strategy_weights, last_prediction, user_feedback_history, history_data, calibrated_models, train_data, train_labels, sentimental_analysis
     try:
         with open(DATA_PERSISTENT_PATH, "w") as f:
@@ -179,10 +187,11 @@ def save_data_state():
              }, f)
         print("Bot data state saved to file.")
     except Exception as e:
-        print(f"Error saving data file {e}")
+        print(f"Error saving data file: {e}")
 
 # --- Chart Generation ---
-def generate_history_chart(history):
+def generate_history_chart(history: List[str]) -> Optional[BytesIO]:
+    """Generates a bar chart of the recent game history."""
     if not history:
         return None
     labels, values = zip(*Counter(history).items())
@@ -201,7 +210,8 @@ def generate_history_chart(history):
 
 
 # --- Prediction Logic ---
-def calculate_probabilities(history):
+def calculate_probabilities(history: List[str]) -> Dict[str, float]:
+    """Calculates probabilities for 't' and 'x'."""
     if not history:
         return {"t": 0.5, "x": 0.5}
     counter = Counter(history)
@@ -211,15 +221,18 @@ def calculate_probabilities(history):
     return {"t": prob_tai, "x": prob_xiu}
 
 
-def apply_probability_threshold(prob_dict, threshold_t=0.55, threshold_x=0.45):
+def apply_probability_threshold(
+    prob_dict: Dict[str, float], threshold_t: float = 0.55, threshold_x: float = 0.45
+) -> Optional[str]:
+    """Applies probability thresholds to make a prediction."""
     if prob_dict["t"] > threshold_t:
         return "t"
     if prob_dict["x"] > threshold_x:
         return "x"
     return None
 
-
-def statistical_prediction(history, bias=0.5):
+def statistical_prediction(history: List[str], bias: float = 0.5) -> str:
+    """Makes a statistical prediction based on history."""
     if not history:
         return random.choice(["t", "x"])
     counter = Counter(history)
@@ -229,13 +242,14 @@ def statistical_prediction(history, bias=0.5):
     prob_tai = counter["t"] / total
     prob_xiu = counter["x"] / total
     if random.random() < prob_tai * (1 + bias) / 2:
-      return "t"
+        return "t"
     if random.random() < prob_xiu * (1 + bias) / 2 :
-      return "x"
+        return "x"
     return random.choice(["t", "x"])
 
 
-def prepare_data_for_models(history):
+def prepare_data_for_models(history: List[str]) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Prepares data for machine learning models."""
     if len(history) < 10:
         return None, None
     if len(set(history[-10:])) < 2:
@@ -252,7 +266,8 @@ def prepare_data_for_models(history):
     return X, y
 
 
-def train_all_models():
+def train_all_models() -> None:
+    """Trains all machine learning models."""
     if len(train_data) < 10:
         return
     X, Y = [], []
@@ -288,13 +303,14 @@ def train_all_models():
             print(f"Model Calibration error: {ve} skip model training")
 
 
-def ml_prediction(history):
+def ml_prediction(history: List[str]) -> str:
+    """Makes a prediction using machine learning models."""
     if len(train_data) < 10:
         return statistical_prediction(history)
     features, label = prepare_data_for_models(history)
     if features is None:
         return statistical_prediction(history)
-    try:
+    try :
       model_svm_prob = model_calibrated_svm.predict_proba(features)
       svm_prediction_label = model_calibrated_svm.predict(features)
     except Exception as e :
@@ -328,10 +344,12 @@ def ml_prediction(history):
     svm_label = le.inverse_transform(svm_prediction_label)[0]
     predicted_outcome = apply_probability_threshold(avg_probabilty, 0.53, 0.47)
     if predicted_outcome:
-      return predicted_outcome
+        return predicted_outcome
     return svm_label
 
-def _predict_probabilty(model, features):
+
+def _predict_probabilty(model: Any, features: np.ndarray) -> Tuple[Dict[str, float], Optional[str]]:
+    """Predicts probabilities and labels for a given model."""
     if hasattr(model, "predict_proba"):
         try:
             probs = model.predict_proba(features)[0]
@@ -343,7 +361,9 @@ def _predict_probabilty(model, features):
             return {"t": float("NaN"), "x": float("NaN")}, None
     return {"t": float("NaN"), "x": float("NaN")}, None
 
-def cluster_analysis(history):
+
+def cluster_analysis(history: List[str]) -> Optional[str]:
+    """Performs cluster analysis to make a prediction."""
     if len(history) < 5:
         return None
     encoded_history = le.fit_transform(history)
@@ -362,7 +382,9 @@ def cluster_analysis(history):
         return "x"
     return "t"
 
-def analyze_real_data(history):
+
+def analyze_real_data(history: List[str]) -> Optional[str]:
+    """Analyzes real data for patterns to make a prediction."""
     if len(history) < 3:
         return None
     if all(item == history[0] for item in history):
@@ -371,7 +393,9 @@ def analyze_real_data(history):
         return "t" if history[-1] == "x" else "x"
     return None
 
-def deterministic_algorithm(history):
+
+def deterministic_algorithm(history: List[str]) -> Optional[str]:
+    """Applies a deterministic algorithm to make a prediction."""
     if len(history) < 4:
         return None
     if history[-1] == history[-2] == history[-3] and history[-1] == "t":
@@ -386,14 +410,17 @@ def deterministic_algorithm(history):
         return "t" if history[-1] == "x" else "x"
     return None
 
-def adjust_strategy_weights(feedback, strategy):
+def adjust_strategy_weights(feedback: str, strategy: str) -> Dict[str, float]:
+    """Adjusts strategy weights based on user feedback."""
     global strategy_weights
     weight_change = feedback_weights.get(feedback, 0.0)
     strategy_weights[strategy] += weight_change * strategy_weights[strategy] * 0.15
     strategy_weights[strategy] = min(max(strategy_weights[strategy], 0.01), 2.0)
     return strategy_weights
 
-def mathematical_calculation(history):
+
+def mathematical_calculation(history: List[str]) -> Optional[str]:
+    """Performs a mathematical calculation to make a prediction."""
     if not history or len(history) < 5:
         return None
     sequence = "".join(history[-5:])
@@ -407,7 +434,8 @@ def mathematical_calculation(history):
       return "x"
     return None
 
-def statistical_algorithm(history):
+def statistical_algorithm(history: List[str]) -> Optional[str]:
+    """Applies a statistical algorithm to make a prediction."""
     if not history or len(history) < 10:
         return None
     last_10 = history[-10:]
@@ -424,7 +452,8 @@ def statistical_algorithm(history):
        return "x"
     return None
 
-def statistical_analysis(history):
+def statistical_analysis(history: List[str]) -> Optional[str]:
+    """Performs a statistical analysis to make a prediction."""
     if not history or len(history) < 8:
         return None
     last_8 = history[-8:]
@@ -433,14 +462,16 @@ def statistical_analysis(history):
     prob_t = counter["t"] / total if "t" in counter else 0
     prob_x = counter["x"] / total if "x" in counter else 0
     if abs(prob_t - prob_x) > 0.3:
-      return "t" if prob_x > prob_t else "x"
+        return "t" if prob_x > prob_t else "x"
     if random.random() < 0.5:
        return "t"
     if random.random() > 0.40:
       return "x"
     return None
 
-def numerical_analysis(history):
+
+def numerical_analysis(history: List[str]) -> Optional[str]:
+    """Performs a numerical analysis to make a prediction."""
     if not history or len(history) < 6:
         return None
     numeric_representation = [1 if h == "t" else 0 for h in history[-6:]]
@@ -452,7 +483,9 @@ def numerical_analysis(history):
         return "x" if random.random() > 0.4 else "t"
     return None
 
-def search_algorithm(history):
+
+def search_algorithm(history: List[str]) -> Optional[str]:
+    """Applies a search algorithm to make a prediction."""
     if not history or len(history) < 7:
         return None
     sequence_last_7 = "".join(history[-7:])
@@ -462,7 +495,9 @@ def search_algorithm(history):
             return "x" if pattern[0] == "t" else "t"
     return None
 
-def automatic_programming(history):
+
+def automatic_programming(history: List[str]) -> Optional[str]:
+    """Applies an automatic programming logic to make a prediction."""
     if not history or len(history) < 5:
         return None
     last_5 = "".join(history[-5:])
@@ -472,7 +507,9 @@ def automatic_programming(history):
         return "t" if last_5[0] == "x" else "x"
     return None
 
-def theorem_algorithm(history):
+
+def theorem_algorithm(history: List[str]) -> Optional[str]:
+    """Applies a theorem based algorithm to make a prediction."""
     if not history or len(history) < 6:
         return None
     last_6 = history[-6:]
@@ -486,8 +523,8 @@ def theorem_algorithm(history):
       return "t"
     return None
 
-
-def evolutionary_algorithm(history):
+def evolutionary_algorithm(history: List[str]) -> Optional[str]:
+    """Applies an evolutionary algorithm to make a prediction."""
     if not history or len(history) < 10:
         return None
     sequence = "".join(history[-10:])
@@ -501,7 +538,9 @@ def evolutionary_algorithm(history):
         return "t" if random.random() > 0.2 else None
     return None
 
-def reading_opportunity(history):
+
+def reading_opportunity(history: List[str]) -> Optional[str]:
+    """Applies an reading opportunity algorithm to make a prediction."""
     if not history or len(history) < 5:
         return None
     last_5_seq = "".join(history[-5:])
@@ -510,13 +549,14 @@ def reading_opportunity(history):
     if last_5_seq.count("x") == 3 and last_5_seq.count("t") == 2:
         return "t" if random.random() < 0.6 else "x"
     if "xtxt" in last_5_seq or "txtx" in last_5_seq:
-        if random.random() > 0.4:
-           return "t"
-        if random.random() > 0.2:
-           return "x"
+      if random.random() > 0.4:
+         return "t"
+      if random.random() > 0.2:
+         return "x"
     return None
 
-def combined_prediction(history):
+def combined_prediction(history: List[str]) -> str:
+    """Combines all prediction methods to make a final prediction."""
     global last_prediction
     strategy = None
     algo_prediction = deterministic_algorithm(history)
@@ -608,7 +648,8 @@ def combined_prediction(history):
 
 
 # --- Training Status Calculation ---
-def calculate_training_status():
+def calculate_training_status() -> Dict[str, Any]:
+    """Calculates the training status of the bot."""
     total_predictions = len(user_feedback_history)
     if total_predictions == 0:
         return {"status": "🤖 Chưa đủ dữ liệu.", "accuracy": 0, "intelligence": 0}
@@ -628,8 +669,10 @@ def calculate_training_status():
     }
     return status_report
 
+
 # --- Telegram Bot Command Handlers ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /start command."""
     start_text = (
         "✨ Chào mừng bạn đến với *{BOT_NAME}*!\n\n"
         "🎲 Sử dụng /tx [dãy lịch sử] để nhận dự đoán Tài/Xỉu.\n"
@@ -646,7 +689,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_text.format(BOT_NAME=BOT_NAME), parse_mode=ParseMode.MARKDOWN
     )
 
-async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /update command."""
     try:
         save_cau_data()
         await update.message.reply_text("🔄 Đã cập nhật dữ liệu cầu vào file.")
@@ -654,7 +699,9 @@ async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Could not save cau data during update command: {e}")
         await update.message.reply_text("🔄 Không thể cập nhật dữ liệu cầu.")
 
-async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /save command."""
     try:
         save_data_state()
         await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
@@ -663,7 +710,8 @@ async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("💾 Không thể lưu dữ liệu.")
 
 
-async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /tx command."""
     try:
         user_input = " ".join(context.args)
         if not user_input:
@@ -697,7 +745,8 @@ async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Lỗi: {e}")
 
 
-async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /add command."""
     try:
         user_input = " ".join(context.args)
         if not user_input:
@@ -718,17 +767,19 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
         history_data.extend(new_data)
-        for i in range(len(new_data) - 5 + 1):
-            if len(list(history_data)) >= 5:
-              train_data.append(list(history_data[:len(history_data)-i]))
-              train_labels.append(new_data[i+4] if i+4 < len(new_data) else new_data[-1])
+        for i in range(len(new_data)):
+          if len(list(history_data)) >= 5+i:
+             train_data.append(list(history_data[:len(history_data)-i]))
+             train_labels.append(new_data[i] if i < len(new_data) else new_data[-1])
+
         train_all_models()
         await update.message.reply_text(f"➕ Đã cập nhật dữ liệu: {new_data}")
     except Exception as e:
         await update.message.reply_text(f"⚠️ Lỗi: {e}")
 
 
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles button press events."""
     query = update.callback_query
     await query.answer()
     feedback = query.data
@@ -767,14 +818,16 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     adjust_strategy_weights(feedback, last_prediction["strategy"])
 
 
-async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /history command."""
     if not history_data:
         await update.message.reply_text("📜 Chưa có dữ liệu lịch sử.")
     else:
         await update.message.reply_text(f"📜 Lịch sử gần đây: {' '.join(history_data)}")
 
 
-async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /chart command."""
     chart_image = generate_history_chart(history_data)
     if chart_image is None:
         await update.message.reply_text("📊 Không có dữ liệu để hiển thị biểu đồ.")
@@ -788,7 +841,8 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📊 Không thể tạo biểu đồ. Lỗi không xác định")
 
 
-def save_current_history_image():
+def save_current_history_image() -> None:
+    """Saves the current history chart to an image file."""
     chart_image = generate_history_chart(history_data)
     if chart_image:
         try:
@@ -799,7 +853,8 @@ def save_current_history_image():
             print(f"Error saving chart image: {e}")
 
 
-async def logchart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def logchart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /logchart command."""
     try:
         save_current_history_image()
         await update.message.reply_text("💾 Đã lưu biểu đồ vào máy chủ.")
@@ -808,7 +863,8 @@ async def logchart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("💾 Không thể lưu biểu đồ.")
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /help command."""
     help_text = (
         f"✨ Hướng dẫn sử dụng *{BOT_NAME}*:\n\n"
         f"   🎲 /tx [dãy lịch sử]: Nhận dự đoán kết quả Tài/Xỉu.\n"
@@ -827,8 +883,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text.format(BOT_NAME=BOT_NAME), parse_mode=ParseMode.MARKDOWN
     )
 
-
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /status command."""
     training_report = calculate_training_status()
     formatted_message = (
         f"🤖 Trạng thái *{BOT_NAME}*:\n\n"
@@ -837,6 +893,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"   🧠 Mức độ thông minh: *{training_report['intelligence']:.2f}/100*\n"
     )
     await update.message.reply_text(formatted_message, parse_mode=ParseMode.MARKDOWN)
+
 
 if __name__ == "__main__":
     create_feedback_table()
