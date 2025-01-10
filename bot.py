@@ -9,9 +9,11 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import threading
 import re
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
-
+import asyncio
+from typing import List, Dict, Callable, Any
+from telegram import Update, Message
+from telegram.ext import Application, CommandHandler, CallbackContext
+import math
 # Bot configuration - Read from environment variables
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
@@ -2818,63 +2820,95 @@ def send_otp_via_takomo(sdt):
     return response.text
     
 
-# Bot commands
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text('Chào bạn! Gửi cho tôi số điện thoại bằng lệnh /spam để gửi otp tới hàng loạt hệ thống.')
+spam_message_id: int | None = None
+spam_phone_number: str | None = None
 
-def validate_phone_number(phone):
-    pattern = r'^0\d{9}$' # Simple vietnamese phone number format: starts with 0 then has 9 digits after
-    if re.match(pattern, phone):
-      return True
-    return False
 
-def spam(update: Update, context: CallbackContext):
+def validate_phone_number(phone: str) -> bool:
+    """Validates a Vietnamese phone number format."""
+    pattern = r'^0\d{9}$'
+    return bool(re.match(pattern, phone))
+
+
+async def start(update: Update, context: CallbackContext) -> None:
+    """Handles the /start command."""
+    await update.message.reply_text('Chào bạn! Gửi cho tôi số điện thoại bằng lệnh /spam để gửi otp tới hàng loạt hệ thống.')
+
+
+async def spam(update: Update, context: CallbackContext) -> None:
+    """Handles the /spam command and initiates OTP sending."""
+    global spam_phone_number, spam_message_id
     if not context.args:
-        update.message.reply_text("Vui lòng cung cấp số điện thoại sau lệnh /spam. Ví dụ: /spam 0912345678")
+        await update.message.reply_text("Vui lòng cung cấp số điện thoại sau lệnh /spam. Ví dụ: /spam 0912345678")
         return
 
     phone = context.args[0]
-
     if not validate_phone_number(phone):
-        update.message.reply_text("Số điện thoại không hợp lệ! Hãy nhập một số điện thoại hợp lệ có 10 chữ số và bắt đầu bằng 0.")
+        await update.message.reply_text("Số điện thoại không hợp lệ! Hãy nhập một số điện thoại hợp lệ có 10 chữ số và bắt đầu bằng 0.")
         return
+    spam_phone_number = phone  # Store the phone number on global so later is available
+    message = await update.message.reply_text(f'Đang gửi OTP tới số điện thoại {phone}...\n[  0% ]')  # Starting progress with 0
+    spam_message_id = message.message_id # also storing global messageID for telegram methods such to be updated every time there is an state
    
-    update.message.reply_text(f'Đang gửi OTP tới số điện thoại {phone}...')
+    await send_otp_with_all(update, context, phone)
 
 
-    def send_otp_with_all(phone):
-      results = {}
-      for func in otp_functions:
-            try:
-              if func == send_otp_via_pico:
-                  result = func(phone)
-                  results[func.__name__] = str(result) # this is an array , needs to turn it into a strig 
-              elif func == send_otp_via_moca or func == send_otp_via_hoangphuc : 
-                  result = str(func(phone))
-                  results[func.__name__] = result # some functions already send a response ready to use like a str , we need to be consitent to always make the return a string
-              elif func == send_otp_via_tima or func ==  send_otp_via_BACHHOAXANH  or  func ==  send_otp_via_paynet or func ==  send_otp_via_Routine: 
-                   result = str(func(phone)) # these send text to console  , now returning string value for them , some returns an object, others strigns others json or text etc. it's necesary to put them all under the same "return str" for consitent results that we will see latter
-                   results[func.__name__] = result 
-              else:
+
+async def send_otp_with_all(update: Update, context: CallbackContext, phone: str) -> None:
+    """Executes OTP functions, updates the progress and reports results."""
+    global spam_message_id, spam_phone_number
+
+    total_functions = len(otp_functions)
+    results = {}
+    for index, func in enumerate(otp_functions):
+        try:
+            if func == send_otp_via_pico:
+                 result = await func(phone)
+                 results[func.__name__] = str(result)
+            elif func == send_otp_via_moca or func == send_otp_via_hoangphuc : 
+               result = str(func(phone))
+               results[func.__name__] = result
+            elif func == send_otp_via_tima or func ==  send_otp_via_BACHHOAXANH  or  func ==  send_otp_via_paynet or func ==  send_otp_via_Routine:
                 result = str(func(phone))
-                results[func.__name__] = result # every case now, returning string value from functions (in the "success_check variable below )  is important
+                results[func.__name__] = result
+            else:
+              result = str(await func(phone))
+              results[func.__name__] = result
+            
+        except Exception as e:
+          results[func.__name__] =  str(f"An error occurred for {func.__name__}:: {e}")
+    
+        progress_percent = math.floor((index + 1) / total_functions * 100) # calculo
+        progress_bar = '[' + '█' * (progress_percent // 10) + ' ' * (10 - progress_percent // 10) + f' {progress_percent}% ]'  # visual for %
+        
+        #Update status
+        if spam_message_id and spam_phone_number == phone :  # avoid sending progress of another different call , and also checks if global is defined or its none . 
+                try :
+                     await context.bot.edit_message_text( # update progress in bot on each iteration of requests (progress will be called in between for requests made in series)
+                      chat_id=update.message.chat_id,
+                       message_id=spam_message_id,
+                       text=f"Đang gửi OTP tới số điện thoại {phone}...\n{progress_bar}" 
+                      )
+                except Exception as editError: # incase if update on previous message did fail
+                     print(f"error at update of text message :: {editError}")
+    
+    success_check = all('error' not in results[key].lower() for key in results) 
 
-            except Exception as e:
-              results[func.__name__] =  str(f"An error occurred for {func.__name__}:: {e}")
-      success_check = all('error' not in results[key].lower() for key in results) # check in results dictionary is there some function with "error" inside their response
-      if success_check:
-           update.message.reply_text(f'Đã gửi OTP thành công cho số điện thoại {phone}') 
-      else: 
-         for key, value in results.items(): #loop through dictionary to report on telegram bot only about where we have an issue
+    if success_check:
+         await update.message.reply_text(f'Đã gửi OTP thành công cho số điện thoại {phone}')
+    else:
+        for key, value in results.items():
            if 'error' in value.lower():
-             update.message.reply_text(f"Failed in {key}:  {value}")
+            await update.message.reply_text(f"Failed in {key}: {value}")
 
-    send_otp_with_all(phone)
 
-# Start the bot
-updater = Updater(TOKEN)
-dp = updater.dispatcher
-dp.add_handler(CommandHandler("start", start))
-dp.add_handler(CommandHandler("spam", spam))
-updater.start_polling()
-updater.idle()
+async def main():
+   application = Application.builder().token(TOKEN).build()
+   application.add_handler(CommandHandler("start", start))
+   application.add_handler(CommandHandler("spam", spam))
+
+   await application.run_polling(allowed_updates=Update.ALL_TYPES)
+  
+
+if __name__ == "__main__":
+    asyncio.run(main())
