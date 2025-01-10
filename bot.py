@@ -549,8 +549,9 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
        history_data.extend(new_data)
        for i in range(len(new_data) - 5 + 1):
-          train_data.append(list(history_data))
-          train_labels.append(new_data[i + 4])
+          if len(list(history_data)) >= 5:
+            train_data.append(list(history_data[:len(history_data)-i]))
+            train_labels.append(new_data[i+4] if i+4 < len(new_data) else new_data[-1])
        train_all_models()
        await update.message.reply_text(f"➕ Đã cập nhật dữ liệu: {new_data}")
     except Exception as e:
@@ -562,7 +563,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global  user_feedback_history
     if last_prediction.get("strategy") is None or last_prediction.get('result') is None or  last_prediction.get('model')  is None :
        await query.edit_message_text("⚠️ Không thể ghi nhận phản hồi. Vui lòng thử lại sau.")
-       return
+              return
     if  feedback == 'correct':
         user_feedback_history.append({'result': last_prediction['result'], 'strategy': last_prediction['strategy'],
                                       'feedback': 'correct', 'timestamp': time.time()})
@@ -589,6 +590,15 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e :
          print (f"error sending chart , error : {e}")
          await update.message.reply_text("📊 Không thể tạo biểu đồ. Lỗi không xác định")
+def save_current_history_image():
+    chart_image = generate_history_chart(history_data)
+    if chart_image:
+        try:
+            with open("history_chart.png", "wb") as f:
+                f.write(chart_image.getvalue())
+            print ("Chart image save to ./history_chart.png")
+        except Exception as e :
+            print (f"Error saving chart image {e}")
 async def logchart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         save_current_history_image()
@@ -619,6 +629,23 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"   🧠 Mức độ thông minh: *{training_report['intelligence']:.2f}/100*\n"
     )
     await update.message.reply_text(formatted_message, parse_mode=ParseMode.MARKDOWN)
+def save_data_state():
+    global strategy_weights, last_prediction, user_feedback_history, history_data , calibrated_models, train_data, train_labels, sentimental_analysis
+    try:
+        with open(DATA_PERSISTENT_PATH, 'w') as f:
+             json.dump({
+                "strategy_weights": strategy_weights,
+                "last_prediction": last_prediction,
+                "user_feedback_history": list(user_feedback_history),
+                "history_data": list(history_data),
+                 "train_data": train_data,
+                 "train_labels": train_labels,
+                 "calibrated_models": {str(k): v.__dict__ for k, v in calibrated_models.items()} ,
+                 "sentimental_analysis": sentimental_analysis
+             }, f)
+        print("Đã lưu dữ liệu trạng thái vào file.")
+    except Exception as e:
+        print(f"Could not save data file {e}")
 if __name__ == "__main__":
      create_feedback_table()
      load_data_state()
