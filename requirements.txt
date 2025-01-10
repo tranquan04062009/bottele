@@ -1,4 +1,4 @@
 python-telegram-bot
 requests
 aiohttp
-bs4
+beautifulsoup4
