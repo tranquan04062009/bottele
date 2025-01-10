@@ -86,7 +86,6 @@ def load_cau_data():
                history_data = deque(loaded_data, maxlen=600)
         except Exception as e:
               print(f"Could not open file for cau data:  {e}")
-
 def save_cau_data():
    global history_data
    try:
@@ -136,6 +135,7 @@ def calculate_probabilities(history):
     prob_tai = counter["t"] / total
     prob_xiu = counter["x"] / total
     return {"t": prob_tai, "x": prob_xiu}
+
 def apply_probability_threshold(prob_dict, threshold_t=0.55, threshold_x=0.45):
      return "t" if prob_dict["t"] > threshold_t else "x" if prob_dict["x"] > threshold_x else None
 def statistical_prediction(history, bias=0.5):
@@ -155,7 +155,7 @@ def prepare_data_for_models(history):
     if len(set(history[-10:])) < 2:
           return None, None
     try:
-        encoded_history = le.fit_transform(history[-10:])
+      encoded_history = le.fit_transform(history[-10:])
     except ValueError:
          return None,None
     features = np.array([encoded_history],dtype=np.float64 )
@@ -178,20 +178,19 @@ def train_all_models():
             Y= np.array(Y)
             for model in models_to_calibrate:
                 try:
-                   if len(set(Y)) >1: #Added this validation  data check  before all the training
+                   if len(set(Y)) >1:
                      model.fit(X, Y)
                      calibrated_models[model] = model
                    else :
-                       print (f"Model  {model} Skipped. Not Enough Classes  data:{set(Y)}  to training.")  # safe message of validation parameter skipping model if its an unique value class for training
+                       print (f"Model  {model} Skipped. Not Enough Classes  data:{set(Y)}  to training.")
 
-                except ValueError as ve : #parameter for log info, that skipped the current models training, if not enough class, without skipping whole validation step ( all training validation). It keeps rest  working properly if current has not specific requirements for training of current dataset.
+                except ValueError as ve :
                      print(f" model {model} error for data parameters : {ve}" )
                      pass
 
-
             model_svm.fit(X, Y)
             try:
-              if len(set(Y)) > 1:   #Validation to fit calibration data / labels when are two or more values during series ( if a single is passed , do a safe parameter/ and code skip by parameters types validations from current code).
+              if len(set(Y)) > 1:
                model_calibrated_svm.fit(X,Y)
               else:
                   print(f"Model Calibration Exception skipped due single  data:{set(Y)} classes  training")
@@ -244,7 +243,6 @@ def _predict_probabilty(model, features):
                print (f"Model issue with probability : {ve} for {model}")
                return {"t": float('NaN'), "x": float('NaN')}, None
     return {"t": float('NaN'), "x": float('NaN')}, None
-
 def cluster_analysis(history):
     if len(history) < 5:
          return None
@@ -497,15 +495,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
               "Bạn có thể bắt đầu sử dụng bằng cách nhập các lệnh trên, để trải nghiệm!\n"
      await update.message.reply_text(start_text.format(BOT_NAME=BOT_NAME), parse_mode=ParseMode.MARKDOWN)
 async def update_cau(update: Update, context: ContextTypes.DEFAULT_TYPE):
-      save_cau_data()
-      await update.message.reply_text("🔄 Đã cập nhật dữ liệu cầu vào file.")
+    try:
+        save_cau_data()
+        await update.message.reply_text("🔄 Đã cập nhật dữ liệu cầu vào file.")
+    except Exception as e:
+       print(f"Could not save cau data during update command: {e}")
+       await update.message.reply_text("🔄 Không thể cập nhật dữ liệu cầu.") # if parameter return issue show to user .
 async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-      try:
-        save_data_state()
-        await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
-      except Exception as e:
-         print(f"Error during saving data state {e}")
-         await update.message.reply_text("💾 Không thể lưu dữ liệu")
+    try:
+      save_data_state()
+      await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
+    except Exception as e:
+       print(f"Error during saving data state {e}")
+       await update.message.reply_text("💾 Không thể lưu dữ liệu")
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_input = ' '.join(context.args)
@@ -536,7 +538,7 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
        user_input = ' '.join(context.args)
        if not user_input:
-         await update.message.reply_text("📝 Vui lòng nhập kết        quả thực tế (t: Tài, x: Xỉu)!")
+         await update.message.reply_text("📝 Vui lòng nhập kết quả thực tế (t: Tài, x: Xỉu)!")
          return
        new_data = user_input.split()
        if not all(item in ["t", "x"] for item in new_data):
@@ -562,7 +564,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if last_prediction.get("strategy") is None or last_prediction.get('result') is None or  last_prediction.get('model')  is None :
        await query.edit_message_text("⚠️ Không thể ghi nhận phản hồi. Vui lòng thử lại sau.")
        return
-    if feedback == 'correct':
+    if  feedback == 'correct':
         user_feedback_history.append({'result': last_prediction['result'], 'strategy': last_prediction['strategy'],
                                       'feedback': 'correct', 'timestamp': time.time()})
         save_user_feedback('correct')
