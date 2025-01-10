@@ -41,7 +41,6 @@ last_prediction = {'result': None, 'strategy': None, 'model': None}
 user_feedback_history = deque(maxlen=1000)
 sentimental_analysis= {}
 
-
 model_logistic = LogisticRegression(random_state=42, solver='liblinear',C = 1.1 , penalty = "l1")
 model_svm = SVC(kernel='linear', probability=True, random_state=42 , C=1.4)
 model_sgd = SGDClassifier(loss='log_loss', random_state=42 , alpha=0.01)
@@ -86,7 +85,6 @@ def load_cau_data():
                history_data = deque(loaded_data, maxlen=600)
         except Exception as e:
               print(f"Could not open file for cau data:  {e}")
-
 def save_cau_data():
    global history_data
    try:
@@ -136,10 +134,8 @@ def calculate_probabilities(history):
     prob_tai = counter["t"] / total
     prob_xiu = counter["x"] / total
     return {"t": prob_tai, "x": prob_xiu}
-
 def apply_probability_threshold(prob_dict, threshold_t=0.55, threshold_x=0.45):
      return "t" if prob_dict["t"] > threshold_t else "x" if prob_dict["x"] > threshold_x else None
-
 def statistical_prediction(history, bias=0.5):
      if not history:
         return random.choice(["t", "x"])
@@ -493,7 +489,7 @@ async def save_bot_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
       try:
         save_data_state()
         await update.message.reply_text("💾 Đã lưu dữ liệu bot vào file.")
-      except Exception as e: # added parameter checks for exception output
+      except Exception as e:
          print(f"Error during saving data state {e}")
          await update.message.reply_text("💾 Không thể lưu dữ liệu")
 async def tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -570,7 +566,7 @@ async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await update.message.reply_text(f"📜 Lịch sử gần đây: {' '.join(history_data)}")
 async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chart_image = generate_history_chart(history_data)
-        if chart_image is None:
+    if chart_image is None:
         await update.message.reply_text("📊 Không có dữ liệu để hiển thị biểu đồ.")
         return
     try:
