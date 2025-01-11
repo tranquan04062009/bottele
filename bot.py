@@ -1,5 +1,4 @@
 import logging
-import asyncio
 import os
 from typing import List, Dict, Optional
 from telegram import Update, Bot
@@ -372,7 +371,7 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 
-async def init_bot() -> None:
+def init_bot():
     """Initialize bot and run it"""
     if not TOKEN:
         logging.critical('Telegram TOKEN not found, set env TELEGRAM_BOT_TOKEN')
@@ -392,25 +391,8 @@ async def init_bot() -> None:
     global bot
     bot = application.bot #declare global var
     logging.info('Bot Started')
-    await application.run_polling(allowed_updates=["message", "callback_query", "inline_query"])
+    application.run_polling(allowed_updates=["message", "callback_query", "inline_query"])
 
 
 if __name__ == '__main__':
-    if os.name == 'nt':  # Check if the OS is Windows
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    try:
-         loop = asyncio.get_event_loop()
-         loop.run_until_complete(init_bot())
-    except RuntimeError as e:
-        logging.critical(f"A RuntimeError occurred during bot initialization: {e}")
-        if "This event loop is already running" in str(e):
-             logging.critical("It seems that the event loop is already running.")
-             # In a situation like railway you might not be able to launch multiple loops, so might not require a fix
-             # But in case, you do encounter this issue, you could potentially use the following workaround:
-             #
-             # loop = asyncio.new_event_loop() # Create a new event loop.
-             # asyncio.set_event_loop(loop)
-             # loop.run_until_complete(init_bot())
-             # loop.close()
-        else:
-           logging.critical("Please check the error message and try again")
+    init_bot()
