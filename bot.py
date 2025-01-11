@@ -247,29 +247,75 @@ async def cancel(update: Update, context: CallbackContext) -> int:
 
 # [Previous code remains the same until main]
 
+import signal
+os.system('pip install signal')
+
 async def main():
     global bot
-    status = await init()
-    if status:
-        application = Application.builder().token(TOKEN).build()
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler('set', ask_for_report)],
-            states={
-                REPORT_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_for_cookie)],
-                REPORT_STATE + 1: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_id_cookie)],
-            },
-            fallbacks=[CommandHandler('cancel', cancel)],
-        )
-        
-        application.add_handler(conv_handler)
-        application.add_handler(CommandHandler("start", successful_start))
-        application.add_handler(CommandHandler("report", start_report_command))
-        
-        bot = application.bot
-        logging.info('Bot Started')
-        await application.initialize()
-        await application.start()
-        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    
+    # Set up signal handlers
+    def signal_handler(signum, frame):
+        logging.info("Signal received, shutting down...")
+        asyncio.create_task(shutdown())
+    
+    async def shutdown():
+        logging.info("Shutting down...")
+        if 'application' in globals():
+            await application.stop()
+            await application.shutdown()
+        for task in asyncio.all_tasks():
+            if task is not asyncio.current_task():
+                task.cancel()
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        status = await init()
+        if status:
+            application = Application.builder().token(TOKEN).build()
+            conv_handler = ConversationHandler(
+                entry_points=[CommandHandler('set', ask_for_report)],
+                states={
+                    REPORT_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_for_cookie)],
+                    REPORT_STATE + 1: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_id_cookie)],
+                },
+                fallbacks=[CommandHandler('cancel', cancel)],
+            )
+            
+            application.add_handler(conv_handler)
+            application.add_handler(CommandHandler("start", successful_start))
+            application.add_handler(CommandHandler("report", start_report_command))
+            
+            bot = application.bot
+            logging.info('Bot Started')
+            
+            # Initialize and start the application
+            await application.initialize()
+            await application.start()
+            
+            # Set up proper shutdown behavior
+            try:
+                await application.run_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=True,  # Ignore updates that came while bot was offline
+                    close_loop=False  # Don't close the event loop after stopping
+                )
+            except Exception as e:
+                logging.error(f"Error in polling: {e}")
+            finally:
+                await shutdown()
+    except Exception as e:
+        logging.error(f"Startup error: {e}")
+        await shutdown()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Bot stopped by keyboard interrupt")
+    except Exception as e:
+        logging.error(f"Fatal error: {e}")
+    finally:
+        logging.info("Bot shutdown complete")
