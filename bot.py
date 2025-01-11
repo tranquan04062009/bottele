@@ -391,8 +391,7 @@ async def init_bot() -> None:
     global bot
     bot = application.bot #declare global var
     logging.info('Bot Started')
-    await application.run_polling(allowed_updates=Application.ALL_ALLOWED_UPDATES)
-
+    await application.run_polling(allowed_updates=["message", "callback_query", "inline_query"])
 
 
 if __name__ == '__main__':
