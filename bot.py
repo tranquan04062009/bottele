@@ -120,18 +120,9 @@ async def post_data(
          return None
 
 
-def is_valid_facebook_id(fb_id: str) -> bool:
-    """Checks if a given string is a valid Facebook ID format (numbers only)."""
-    return re.match(r'^\d+$', fb_id) is not None
-def is_valid_facebook_token(fb_token: str) -> bool:
-    """Simple check if a token contains only alphanumerical characters with a max length of 100"""
-    return re.match(r'^[a-zA-Z0-9]{1,100}$', fb_token) is not None
 def generate_url(target_id: str) -> str:
    """Generate the URL if the user id or a page id"""
-   if is_valid_facebook_id(target_id):
-      return  f"https://mbasic.facebook.com/{target_id}"
-   else:
-       return f"https://mbasic.facebook.com/{target_id}" # If the id is a name, lets handle the request like it is a user
+   return  f"https://mbasic.facebook.com/{target_id}" # If the id is a name, lets handle the request like it is a user
 
 async def process_report_cycle(
     session: aiohttp.ClientSession,
@@ -322,16 +313,15 @@ async def ask_for_cookie_or_token(update: Update, context: CallbackContext) -> O
     """Asks for the cookie or token after receiving the target ID."""
     if 'target_id' in context.user_data:
         target_id = context.user_data['target_id']
-        if is_valid_facebook_id(target_id):
+        if  re.match(r'^\d+$', target_id) :
            await update.message.reply_text('Tuyệt vời, bây giờ hãy gửi cookie Facebook:')
         else:
-          await update.message.reply_text('Tuyệt vời, bây giờ hãy gửi token Facebook:')
+           await update.message.reply_text('Tuyệt vời, bây giờ hãy gửi token Facebook:')
+
         return REPORT_STATE + 1
     else:
-      await update.message.reply_text('Lỗi: Bạn chưa nhập ID người dùng. Vui lòng dùng /set trước.')
-      return ConversationHandler.END
-
-
+       await update.message.reply_text('Lỗi: Bạn chưa nhập ID người dùng. Vui lòng dùng /set trước.')
+       return ConversationHandler.END
 
 async def save_id_cookie(update: Update, context: CallbackContext) -> int:
     """Saves the target ID and cookie or token to user data."""
@@ -339,29 +329,24 @@ async def save_id_cookie(update: Update, context: CallbackContext) -> int:
     target_id = context.user_data['target_id']
     cookie_or_token = update.message.text.strip()
     global user_data
+
     try:
-        if is_valid_facebook_id(target_id):
-            if is_valid_facebook_token(cookie_or_token) == False :
+        if re.match(r'^\d+$', target_id):
               user_data[user_id] = {"target_id": target_id, "cookie": cookie_or_token}
               await update.message.reply_text(f'Đã cập nhật dữ liệu người dùng với ID mục tiêu: {target_id}, độ dài cookie: {len(cookie_or_token)}')
               logging.info(f'Đã cập nhật report mới cho user {user_id}')
               return ConversationHandler.END
-            else:
-                await update.message.reply_text("Lỗi : bạn nhập cookie không đúng định dạng")
-                return ConversationHandler.END
-        elif is_valid_facebook_token(cookie_or_token) :
-             user_data[user_id] = {"target_id": target_id, "token": cookie_or_token}
-             await update.message.reply_text(f"Đã cập nhật dữ liệu với ID : {target_id} và Token dài: {len(cookie_or_token)}")
-             logging.info(f'Đã cập nhật report mới cho user {user_id}')
-             return ConversationHandler.END
-        else :
-            await update.message.reply_text("Lỗi, bạn đã nhập cookie hoặc token không đúng định dạng.")
-            return ConversationHandler.END
+
+        else:
+              user_data[user_id] = {"target_id": target_id, "token": cookie_or_token}
+              await update.message.reply_text(f"Đã cập nhật dữ liệu với ID : {target_id} và Token dài: {len(cookie_or_token)}")
+              logging.info(f'Đã cập nhật report mới cho user {user_id}')
+              return ConversationHandler.END
+
     except Exception as error:
        await update.message.reply_text(f'Lỗi khi xử lý yêu cầu report: {error}')
        logging.error(f'Lỗi trong save_id_cookie cho user {user_id}: {error}')
        return ConversationHandler.END
-
 
 
 async def start_report_command(update: Update, context: CallbackContext) -> None:
@@ -377,31 +362,23 @@ async def start_report_command(update: Update, context: CallbackContext) -> None
               target_id = user["target_id"]
               cookie = user.get("cookie")
               token = user.get("token")
+              loops = DEFAULT_REPORT_LOOPS
+              if context.args and context.args[0].isdigit():
+                 loops = int(context.args[0])
+                 if loops > MAX_REPORT_LOOPS:
+                   loops = MAX_REPORT_LOOPS
 
               if cookie:
-                   loops = DEFAULT_REPORT_LOOPS # set loop
-                   if context.args and context.args[0].isdigit():
-                         loops = int(context.args[0])
-                         if loops > MAX_REPORT_LOOPS:
-                             loops = MAX_REPORT_LOOPS
-                   await bot.send_message(chat_id=chat_id, text=f'Bắt đầu {loops} report cho user hoặc id : {target_id}, với cookie có độ dài: {len(cookie) if cookie else "None"}')
-                   asyncio.create_task(process_report(user_id, target_id, cookie, chat_id,loops))
-
+                 await bot.send_message(chat_id=chat_id, text=f'Bắt đầu {loops} report cho user hoặc id : {target_id}, với cookie có độ dài: {len(cookie) if cookie else "None"}')
+                 asyncio.create_task(process_report(user_id, target_id, cookie, chat_id,loops))
               elif token:
-                   loops = DEFAULT_REPORT_LOOPS
-                   if context.args and context.args[0].isdigit():
-                      loops = int(context.args[0])
-                      if loops > MAX_REPORT_LOOPS:
-                         loops = MAX_REPORT_LOOPS
-                   await bot.send_message(chat_id=chat_id, text=f"Bắt đầu {loops} báo cáo cho id trang hoặc user: {target_id}, với token dài : {len(token)}")
-                   asyncio.create_task(process_report(user_id, target_id, token, chat_id, loops))
+                 await bot.send_message(chat_id=chat_id, text=f"Bắt đầu {loops} báo cáo cho id trang hoặc user: {target_id}, với token dài : {len(token)}")
+                 asyncio.create_task(process_report(user_id, target_id, token, chat_id, loops))
          else:
-             await update.message.reply_text("Bạn chưa thêm ID và cookie hoặc token để báo cáo.")
-
+              await update.message.reply_text("Bạn chưa thêm ID và cookie hoặc token để báo cáo.")
     except Exception as e:
        await update.message.reply_text(f"Lỗi khi thực thi lệnh: {e}")
        logging.error(f'Lỗi trong start_report_command cho user {user_id}: {e}')
-
 
 async def handle_report_again(update: Update, context: CallbackContext) -> None:
     """Handle the case where the user answers if want to report again"""
@@ -412,19 +389,19 @@ async def handle_report_again(update: Update, context: CallbackContext) -> None:
 
     if text == "có":
        if user_id in user_data:
-          user = user_data[user_id]
-          target_id = user["target_id"]
-          cookie = user.get("cookie")
-          token = user.get("token")
+           user = user_data[user_id]
+           target_id = user["target_id"]
+           cookie = user.get("cookie")
+           token = user.get("token")
+           loops = DEFAULT_REPORT_LOOPS
 
-          if cookie:
-             loops = DEFAULT_REPORT_LOOPS
-             await bot.send_message(chat_id=chat_id, text=f'Bắt đầu report lại cho id : {target_id}, với cookie có độ dài: {len(cookie) if cookie else "None"}')
-             asyncio.create_task(process_report(user_id, target_id, cookie, chat_id,loops))
-          elif token:
-             loops = DEFAULT_REPORT_LOOPS
-             await bot.send_message(chat_id=chat_id, text=f'Bắt đầu report lại cho id : {target_id}, với token có độ dài: {len(token) if token else "None"}')
-             asyncio.create_task(process_report(user_id, target_id, token, chat_id,loops))
+           if cookie:
+                await bot.send_message(chat_id=chat_id, text=f'Bắt đầu report lại cho id : {target_id}, với cookie có độ dài: {len(cookie) if cookie else "None"}')
+                asyncio.create_task(process_report(user_id, target_id, cookie, chat_id, loops))
+
+           elif token:
+                 await bot.send_message(chat_id=chat_id, text=f'Bắt đầu report lại cho id : {target_id}, với token có độ dài: {len(token) if token else "None"}')
+                 asyncio.create_task(process_report(user_id, target_id, token, chat_id, loops))
 
 
        else:
@@ -436,6 +413,7 @@ async def handle_report_again(update: Update, context: CallbackContext) -> None:
     else:
       await update.message.reply_text("Vui lòng trả lời 'có' hoặc 'không'.")
 
+
 async def successful_start(update: Update, context: CallbackContext) -> None:
     """Simple handler to check the bot is running"""
     await update.message.reply_text("Bot đang chạy")
@@ -444,7 +422,6 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     """Cancels and ends the conversation."""
     await update.message.reply_text("Thao tác đã bị hủy.")
     return ConversationHandler.END
-
 
 def init_bot():
     """Initialize bot and run it"""
