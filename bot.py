@@ -245,8 +245,11 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Đã hủy thao tác")
     return ConversationHandler.END
 
-if __name__ == '__main__':
-    status = asyncio.run(init())
+# [Previous code remains the same until main]
+
+async def main():
+    global bot
+    status = await init()
     if status:
         application = Application.builder().token(TOKEN).build()
         conv_handler = ConversationHandler(
@@ -264,4 +267,9 @@ if __name__ == '__main__':
         
         bot = application.bot
         logging.info('Bot Started')
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        await application.initialize()
+        await application.start()
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
+    asyncio.run(main())
