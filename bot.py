@@ -1,12 +1,11 @@
 import asyncio
 import logging
 import re
-import json
 import os
 import secrets
 import signal
 from typing import Dict, Optional, Any, Tuple, Callable, List
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -14,6 +13,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     filters,
+    CallbackQueryHandler,
 )
 import aiohttp
 from dataclasses import dataclass, field
@@ -21,44 +21,26 @@ from cryptography.fernet import Fernet
 import sqlite3
 from pydantic import BaseModel, validator, ValidationError
 
-
 # Configure logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-
-# Load configuration
-def load_config() -> dict:
-    try:
-        with open("config.json", "r") as f:
-            config = json.load(f)
-            return config
-    except FileNotFoundError:
-        logger.error(
-            "config.json not found. Ensure it exists in the same folder as the script."
-        )
-        exit()
-    except json.JSONDecodeError:
-        logger.error("Error decoding config.json. Please check that its JSON syntax is correct.")
-        exit()
-
-
-config = load_config()
-
-TELEGRAM_TOKEN = config.get("telegram_token")
+# Telegram token from environment variable
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
-    logger.error("Telegram token not found in config.json")
+    logger.error(
+        "Telegram token không được tìm thấy trong biến môi trường TELEGRAM_TOKEN."
+    )
     exit()
-
 
 # Encryption Key (use a proper method for secure key management)
 ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
 if not ENCRYPTION_KEY:
     ENCRYPTION_KEY = secrets.token_urlsafe(32)
     logger.warning(
-        "No encryption key found in environment. Using randomly generated key. THIS IS NOT SECURE FOR PRODUCTION!"
+        "Không tìm thấy khóa mã hóa trong môi trường. Sử dụng khóa được tạo ngẫu nhiên. ĐIỀU NÀY KHÔNG AN TOÀN CHO SẢN XUẤT!"
     )
 fernet = Fernet(ENCRYPTION_KEY)
 
@@ -108,13 +90,13 @@ class UserInput(BaseModel):
     @validator("target_id")
     def validate_target_id(cls, value):
         if not value.isdigit():
-            raise ValueError("Invalid target ID format. Please enter a numerical ID.")
+            raise ValueError("ID mục tiêu không hợp lệ. Vui lòng nhập ID số.")
         return value
 
     @validator("timeout")
     def validate_timeout(cls, value):
         if value <= 0:
-            raise ValueError("Timeout must be a positive number")
+            raise ValueError("Thời gian chờ phải là một số dương.")
         return value
 
 
@@ -191,16 +173,16 @@ def encrypt_cookie(cookie: str) -> str:
     try:
         return fernet.encrypt(cookie.encode()).decode()
     except Exception as e:
-        logger.error(f"Error during cookie encryption: {e}")
-        raise FacebookApiException(f"Cookie encryption failed: {e}") from e
+        logger.error(f"Lỗi trong quá trình mã hóa cookie: {e}")
+        raise FacebookApiException(f"Mã hóa cookie thất bại: {e}") from e
 
 
 def decrypt_cookie(encrypted_cookie: str) -> str:
     try:
         return fernet.decrypt(encrypted_cookie.encode()).decode()
     except Exception as e:
-        logger.error(f"Error during cookie decryption: {e}")
-        raise FacebookApiException(f"Cookie decryption failed: {e}") from e
+        logger.error(f"Lỗi trong quá trình giải mã cookie: {e}")
+        raise FacebookApiException(f"Giải mã cookie thất bại: {e}") from e
 
 
 class FacebookApiVIP:
@@ -209,7 +191,7 @@ class FacebookApiVIP:
         try:
             self.user_id: str = self._extract_user_id(cookie)
         except ValueError as e:
-            raise InvalidCookieError("Failed to extract user ID from the cookie") from e
+            raise InvalidCookieError("Không thể trích xuất ID người dùng từ cookie") from e
         self.headers: dict = self._generate_headers(cookie)
         self.fb_dtsg: Optional[str] = None
         self.jazoest: Optional[str] = None
@@ -219,8 +201,8 @@ class FacebookApiVIP:
         try:
             return cookie.split("c_user=")[1].split(";")[0]
         except IndexError:
-            logger.error("Cannot get user_id from cookie: c_user not found in cookie")
-            raise ValueError("Invalid cookie format")
+            logger.error("Không thể lấy user_id từ cookie: c_user không tìm thấy")
+            raise ValueError("Định dạng cookie không hợp lệ")
 
     def _generate_headers(self, cookie: str) -> dict:
         return {
@@ -252,7 +234,7 @@ class FacebookApiVIP:
 
     async def get_thongtin(self) -> Tuple[str, str]:
         if self.fb_dtsg and self.jazoest:
-            logger.info("Using cached data.")
+            logger.info("Đang sử dụng dữ liệu đã lưu.")
             return self.fb_dtsg, self.jazoest
 
         try:
@@ -261,7 +243,9 @@ class FacebookApiVIP:
             ) as response:
                 home = await response.text()
                 if not home:
-                    raise UserInfoRetrievalError("Empty response from Facebook")
+                    raise UserInfoRetrievalError(
+                        "Phản hồi trống từ Facebook"
+                    )
                 self.fb_dtsg = re.search(r'name="fb_dtsg" value="(.*?)"', home).group(
                     1
                 )
@@ -269,28 +253,28 @@ class FacebookApiVIP:
                     1
                 )
                 ten = re.search(r"<title>(.*?)</title>", home).group(1)
-                logger.info(f"Facebook name: {ten}, ID: {self.user_id}")
+                logger.info(f"Tên Facebook: {ten}, ID: {self.user_id}")
                 return ten, self.user_id
         except AttributeError as e:
             logger.error(
-                f"Unable to get user information: Required information not found in response: {e}"
+                f"Không thể lấy thông tin người dùng: Không tìm thấy thông tin bắt buộc trong phản hồi: {e}"
             )
             raise UserInfoRetrievalError(
-                "Required information not found in response"
+                "Không tìm thấy thông tin bắt buộc trong phản hồi"
             ) from e
         except Exception as e:
-            logger.error(f"Error during get_thongtin: {e}")
+            logger.error(f"Lỗi trong quá trình lấy thông tin: {e}")
             raise UserInfoRetrievalError(
-                f"An error occurred during get_thongtin: {e}"
+                f"Đã xảy ra lỗi trong quá trình lấy thông tin: {e}"
             ) from e
 
     async def report_user(self, target_user_id: str, timeout: int) -> None:
         if not self.fb_dtsg or not self.jazoest:
-            logger.info("Data not loaded yet. Reloading...")
+            logger.info("Dữ liệu chưa được tải. Đang tải lại...")
             try:
                 await self.get_thongtin()
             except UserInfoRetrievalError as e:
-                raise ReportError(f"Failed to retrieve user information: {e}") from e
+                raise ReportError(f"Không thể lấy thông tin người dùng: {e}") from e
 
         reasons = {
             "spam": "Spam",
@@ -317,26 +301,28 @@ class FacebookApiVIP:
                 ) as response:
                     if response.status == 200:
                         logger.info(
-                            f"Successfully reported user {target_user_id} with reason '{reason_description}'."
+                            f"Đã báo cáo thành công người dùng {target_user_id} với lý do '{reason_description}'."
                         )
                     else:
                         logger.error(
-                            f"Report failed with reason '{reason_description}'. Response status code: {response.status}"
+                            f"Báo cáo thất bại với lý do '{reason_description}'. Mã trạng thái phản hồi: {response.status}"
                         )
-                        raise ReportError(f"Report failed: status code {response.status}")
+                        raise ReportError(
+                            f"Báo cáo thất bại: mã trạng thái {response.status}"
+                        )
             except aiohttp.ClientError as e:
                 logger.error(
-                    f"Error executing report with reason '{reason_description}': {e}"
+                    f"Lỗi khi thực hiện báo cáo với lý do '{reason_description}': {e}"
                 )
                 raise ReportError(
-                    f"Network error while reporting: {e}, with reason: {reason_description}"
+                    f"Lỗi mạng khi báo cáo: {e}, với lý do: {reason_description}"
                 ) from e
             except Exception as e:
                 logger.error(
-                    f"Unexpected error while reporting with reason '{reason_description}': {e}"
+                    f"Lỗi không mong muốn khi báo cáo với lý do '{reason_description}': {e}"
                 )
                 raise ReportError(
-                    f"An unexpected error occurred: {e}, with reason {reason_description}"
+                    f"Đã xảy ra lỗi không mong muốn: {e}, với lý do {reason_description}"
                 ) from e
 
 
@@ -346,7 +332,7 @@ async def handle_report_request(
     try:
         if not state_data.cookie:
             raise InvalidInputError(
-                "Cookie not found in state, something wrong with flow."
+                "Không tìm thấy cookie trong dữ liệu, có lỗi trong quy trình."
             )
 
         decrypted_cookie = decrypt_cookie(state_data.cookie)
@@ -357,26 +343,26 @@ async def handle_report_request(
             await api.get_thongtin()
             await api.report_user(state_data.target_id, state_data.timeout)
         await context.bot.send_message(
-            chat_id=user_id, text="Report process completed."
+            chat_id=user_id, text="Quá trình báo cáo đã hoàn tất."
         )
 
     except InvalidInputError as e:
-        logger.error(f"Error during report for user {user_id}: Invalid input: {e}")
+        logger.error(f"Lỗi trong quá trình báo cáo cho người dùng {user_id}: Đầu vào không hợp lệ: {e}")
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"Invalid input: {e}. Please make sure the process is correctly done with correct information.",
+            text=f"Đầu vào không hợp lệ: {e}. Vui lòng đảm bảo quá trình được thực hiện đúng với thông tin chính xác.",
         )
     except FacebookApiException as e:
-        logger.error(f"Error during report for user {user_id}: Facebook API error: {e}")
+        logger.error(f"Lỗi trong quá trình báo cáo cho người dùng {user_id}: Lỗi Facebook API: {e}")
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"An error occurred during the Facebook API call: {e} Please try again.",
+            text=f"Đã xảy ra lỗi trong quá trình gọi API Facebook: {e} Vui lòng thử lại.",
         )
     except Exception as e:
-        logger.error(f"Unexpected error during report for user {user_id}: {e}")
+        logger.error(f"Lỗi không mong muốn trong quá trình báo cáo cho người dùng {user_id}: {e}")
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"An unexpected error occurred: {e}. Please try again.",
+            text=f"Đã xảy ra lỗi không mong muốn: {e}. Vui lòng thử lại.",
         )
     finally:
         state_data.state = "idle"
@@ -384,23 +370,39 @@ async def handle_report_request(
         save_user_state_db(conn, user_id, state_data)
         conn.close()
 
+
 # decorator for command validation for private chat
 def private_chat_only(func: Callable):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.effective_chat.type != "private":
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="This command can only be used in private chats."
+                text="Lệnh này chỉ có thể được sử dụng trong các cuộc trò chuyện riêng tư.",
             )
             return
         return await func(update, context)
     return wrapper
 
+
 @private_chat_only
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    keyboard = [
+        [InlineKeyboardButton("Bắt đầu", callback_data="start_report")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Hello! I'm ready to report Facebook users. Use /cookie to set your cookie and then /report to start.",
+        text="Xin chào! Tôi đã sẵn sàng để báo cáo người dùng Facebook. Bạn muốn bắt đầu chứ?",
+        reply_markup=reply_markup
+    )
+
+
+async def handle_start_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Tuyệt vời! Hãy sử dụng /cookie để thiết lập cookie Facebook của bạn, sau đó sử dụng /report để bắt đầu báo cáo."
     )
 
 @private_chat_only
@@ -412,8 +414,9 @@ async def cookie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     conn.close()
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Please send your Facebook cookie. It will be encrypted and stored temporarily.",
+        text="Vui lòng gửi cookie Facebook của bạn. Nó sẽ được mã hóa và lưu trữ tạm thời.",
     )
+
 
 @private_chat_only
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -423,7 +426,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not state_data or not state_data.cookie:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Please set your Facebook cookie first using /cookie.",
+            text="Vui lòng thiết lập cookie Facebook của bạn trước bằng lệnh /cookie.",
         )
         return
 
@@ -433,7 +436,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     conn.close()
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Please enter the ID of the person you want to report.",
+        text="Vui lòng nhập ID của người bạn muốn báo cáo.",
     )
 
 
@@ -450,7 +453,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="Please use /start to begin.",
+                text="Vui lòng sử dụng lệnh /start để bắt đầu.",
             )
             conn.close()
             return
@@ -463,7 +466,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             save_user_state_db(conn, user_id, state_data)
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="Your cookie has been received and encrypted. Use /report to proceed.",
+                text="Cookie của bạn đã được nhận và mã hóa. Sử dụng lệnh /report để tiếp tục.",
             )
         elif state_data.state == "waiting_for_target_id":
             state_data.target_id = message_text
@@ -471,7 +474,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             save_user_state_db(conn, user_id, state_data)
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="Please enter the timeout for the report request (in seconds)",
+                text="Vui lòng nhập thời gian chờ cho yêu cầu báo cáo (tính bằng giây)",
             )
         elif state_data.state == "waiting_for_timeout":
             validated_input = UserInput(
@@ -482,24 +485,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             save_user_state_db(conn, user_id, state_data)
             asyncio.create_task(handle_report_request(user_id, state_data, context))
     except ValidationError as e:
-        logger.error(f"Validation error for user {user_id}: {e}")
+        logger.error(f"Lỗi xác thực cho người dùng {user_id}: {e}")
         await context.bot.send_message(
-            chat_id=update.effective_chat.id, text=f"Validation Error: {e}"
+            chat_id=update.effective_chat.id, text=f"Lỗi xác thực: {e}"
         )
     except Exception as e:
-        logger.error(f"Unexpected error while processing message for user {user_id}: {e}")
+        logger.error(f"Lỗi không mong muốn khi xử lý tin nhắn cho người dùng {user_id}: {e}")
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=f"An unexpected error occurred, please try again.",
+            text=f"Đã xảy ra lỗi không mong muốn, vui lòng thử lại.",
         )
     finally:
         conn.close()
 
 
 async def shutdown(app: Application) -> None:
-    logger.info("Shutting down bot gracefully...")
+    logger.info("Đang tắt bot một cách êm ái...")
     await app.stop()
-    logger.info("Bot stopped successfully.")
+    logger.info("Bot đã dừng thành công.")
 
 
 async def setup_application(token: str) -> Application:
@@ -508,11 +511,13 @@ async def setup_application(token: str) -> Application:
     application = ApplicationBuilder().token(token).build()
 
     start_handler = CommandHandler("start", start_command)
+    start_button_handler = CallbackQueryHandler(handle_start_button, pattern="start_report")
     cookie_handler = CommandHandler("cookie", cookie_command)
     report_handler = CommandHandler("report", report_command)
     message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
 
     application.add_handler(start_handler)
+    application.add_handler(start_button_handler)
     application.add_handler(cookie_handler)
     application.add_handler(report_handler)
     application.add_handler(message_handler)
@@ -536,6 +541,7 @@ def run_application(application: Application):
             loop.run_until_complete(application.stop())
             loop.close()
 
+
 def main() -> None:
     try:
         application = asyncio.run(setup_application(TELEGRAM_TOKEN))
@@ -543,7 +549,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        logger.error(f"Failed to run bot: {e}")
+        logger.error(f"Không thể chạy bot: {e}")
 
 
 if __name__ == "__main__":
