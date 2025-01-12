@@ -1,14 +1,13 @@
-import asyncio
-import os
-import secrets
-import random
-from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
+from aiogram.utils import exceptions
 from aiogram.dispatcher.filters import Text
-from dotenv import load_dotenv
+import os
+import random
 import requests
+import secrets
+import asyncio
+from dotenv import load_dotenv
 from tqdm import tqdm  # Thư viện thanh tiến trình
 
 # Load environment variables
@@ -167,4 +166,5 @@ async def handle_stop_spam(callback_query: types.CallbackQuery):
 
 if __name__ == "__main__":
     print("Bot đang chạy...")
-    executor.start_polling(dp)
+    # Use dp.start_polling() instead of executor
+    asyncio.run(dp.start_polling())
