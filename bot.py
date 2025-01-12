@@ -12,7 +12,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Lấy Token từ Biến Môi Trường
-TOKEN = os.getenv("TELEGRAM_TOKEN")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Token chưa được thiết lập trong biến môi trường TELEGRAM_BOT_TOKEN.")
 
@@ -98,7 +98,7 @@ async def start_spam(update: Update, context):
         return
 
     await bot.send_message(chat_id, "Nhập tên người dùng muốn spam:")
-    return "WAITING_USERNAME"
+    return "WAITING_USERNAME"  # Chuyển sang trạng thái tiếp theo
 
 # Xử lý nhận tên người dùng và tin nhắn
 async def waiting_username(update: Update, context):
@@ -106,13 +106,13 @@ async def waiting_username(update: Update, context):
     username = update.message.text
 
     await bot.send_message(chat_id, "Nhập tin nhắn bạn muốn gửi:")
-    context.user_data['username'] = username
-    return "WAITING_MESSAGE"
+    context.user_data['username'] = username  # Lưu tên người dùng
+    return "WAITING_MESSAGE"  # Chuyển sang bước tiếp theo
 
 async def waiting_message(update: Update, context):
     chat_id = update.message.chat_id
     message = update.message.text
-    username = context.user_data['username']
+    username = context.user_data['username']  # Lấy tên người dùng đã lưu
 
     session_id = len(user_spam_sessions[chat_id]) + 1
     user_spam_sessions[chat_id].append({'id': session_id, 'username': username, 'message': message, 'is_active': True})
@@ -120,7 +120,7 @@ async def waiting_message(update: Update, context):
     send_spam(username, message, chat_id, session_id)
 
     await bot.send_message(chat_id, f"Phiên spam {session_id} đã bắt đầu!")
-    return ConversationHandler.END
+    return ConversationHandler.END  # Kết thúc cuộc trò chuyện
 
 # Xử lý danh sách spam
 async def list_spam(update: Update, context):
