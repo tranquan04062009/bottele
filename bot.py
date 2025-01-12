@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
-# Load environment vaảiableS
+# Load environment vaảiables
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
