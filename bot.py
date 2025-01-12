@@ -1,153 +1,165 @@
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-import os
 import random
+import string
+import time
+import logging
+from telegram import Bot, Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ConversationHandler
 import requests
-import secrets
-import asyncio
-from dotenv import load_dotenv
-from tqdm import tqdm  # Thư viện thanh tiến trình
+import hashlib
 
-# Load environment variables
-load_dotenv()
-TOKEN = os.getenv('BOT_TOKEN')
+# Cấu hình logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Initialize bot and dispatcher
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
-dp.bot = bot  # Gán bot cho dp
+# Token và bot
+TOKEN = '7361099428:AAHsbnKKUK_aYNsPZNX4BqMLPg3su79JG90'
+bot = Bot(TOKEN)
 
-# Globals for session management
-user_spam_sessions = {}  # {chat_id: [{session_id, username, message, is_active}]}
-blocked_users = set()  # Users who are blocked
+# Biến lưu danh sách spam sessions và blocked users
+user_spam_sessions = {}
+blocked_users = set()
 
-# Constants
-SPAM_RATE_LIMIT = 2  # Seconds between spam messages
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0",
-    "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:31.0) Gecko/20100101 Firefox/31.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/17.17134",
-    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0"
-]
+# Hàm tạo deviceId ngẫu nhiên
+def generate_device_id():
+    return ''.join(random.choices(string.hexdigits.lower(), k=42))
 
-# Headers for requests
-HEADERS = {
-    "User-Agent": random.choice(USER_AGENTS),
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-}
-
-async def send_message(session: dict, chat_id: int):
-    """Send spam messages in a loop and show progress."""
+# Hàm gửi tin nhắn spam
+def send_spam(username, message, chat_id, session_id):
     counter = 0
-    session_id = session["session_id"]
-    total_spams = 100  # You can define a fixed number or use a dynamic value
-    pbar = tqdm(total=total_spams, desc=f"Spam phiên {session_id}", position=0, leave=True)
-
-    while session["is_active"] and counter < total_spams:
+    while user_spam_sessions.get(chat_id, {}).get(session_id, {}).get('is_active', False):
         try:
-            # Generate random device ID
-            device_id = secrets.token_hex(21)
+            device_id = generate_device_id()
             url = "https://ngl.link/api/submit"
-            body = f"username={session['username']}&question={session['message']}&deviceId={device_id}&gameSlug=&referrer="
-
-            # Randomly select user-agent to avoid detection
-            headers = HEADERS
-            headers["User-Agent"] = random.choice(USER_AGENTS)
-
-            # Send POST request
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+            }
+            body = {'username': username, 'question': message, 'deviceId': device_id, 'gameSlug': '', 'referrer': ''}
             response = requests.post(url, headers=headers, data=body)
+
             if response.status_code != 200:
-                await bot.send_message(chat_id, f"[Lỗi] Phiên {session_id}: Bị giới hạn, chờ 5 giây...")
-                await asyncio.sleep(5)
-                continue
+                logger.warning("[Lỗi] Bị giới hạn, đang chờ 5 giây...")
+                time.sleep(5)
+            else:
+                counter += 1
+                logger.info(f"[Tin nhắn] Phiên {session_id}: Đã gửi {counter} tin nhắn.")
+                bot.send_message(chat_id, f"Phiên {session_id}: Đã gửi {counter} tin nhắn.")
+            
+            time.sleep(2)
 
-            # Update spam counter and progress bar
-            counter += 1
-            pbar.update(1)  # Update progress bar
-            await bot.send_message(chat_id, f"Phiên {session_id}: Đã gửi {counter} tin nhắn.")
+        except Exception as e:
+            logger.error(f"[Lỗi] {e}")
+            time.sleep(2)
 
-            await asyncio.sleep(SPAM_RATE_LIMIT)
+# Kiểm tra xem người dùng có bị chặn không
+def is_blocked(chat_id):
+    return chat_id in blocked_users
 
-        except requests.exceptions.RequestException as e:
-            print(f"[Lỗi] {e}")
-            await bot.send_message(chat_id, f"[Lỗi] Không thể gửi tin nhắn: {e}")
-            await asyncio.sleep(2)
+# Bắt đầu với lệnh /start
+def start(update: Update, context):
+    chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
 
-    pbar.close()  # Close progress bar when done
-    # End of session
-    await bot.send_message(chat_id, f"Phiên {session_id} đã kết thúc. Tổng tin nhắn đã gửi: {counter}")
-
-
-dp.register_message_handler(start_command, commands=["start"])  # Register start command handler
-
-@dp.message_handler(Text(equals="Bắt đầu Spam"))
-async def handle_start_spam(message: types.Message):
-    """Handle 'Bắt đầu Spam'."""
-    chat_id = message.chat.id
-    if chat_id in blocked_users:
-        await message.reply("Bạn đã bị chặn khỏi việc sử dụng bot này.")
+    if is_blocked(chat_id):
+        bot.send_message(chat_id, "Bạn đã bị chặn khỏi việc sử dụng bot này.")
         return
 
-    await message.reply("Nhập tên người dùng để spam:")
+    bot.send_message(chat_id, f"Chào mừng! ID Telegram của bạn là: {user_id}")
 
-    # Wait for username
-    username = (await dp.bot.wait_for("message", timeout=60)).text
-    await message.reply("Nhập nội dung tin nhắn:")
-    text = (await dp.bot.wait_for("message", timeout=60)).text
+    if chat_id not in user_spam_sessions:
+        user_spam_sessions[chat_id] = []
 
-    # Start spam session
+    keyboard = [
+        [InlineKeyboardButton("Bắt đầu Spam", callback_data='start_spam'),
+         InlineKeyboardButton("Danh sách Spam", callback_data='list_spam')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    bot.send_message(chat_id, "Chọn tính năng bạn muốn sử dụng:", reply_markup=reply_markup)
+
+# Xử lý bắt đầu spam
+def start_spam(update: Update, context):
+    chat_id = update.callback_query.message.chat_id
+
+    if is_blocked(chat_id):
+        bot.send_message(chat_id, "Bạn đã bị chặn khỏi việc sử dụng bot này.")
+        return
+
+    bot.send_message(chat_id, "Nhập tên người dùng muốn spam:")
+    return "WAITING_USERNAME"
+
+# Xử lý nhận tên người dùng và tin nhắn
+def waiting_username(update: Update, context):
+    chat_id = update.message.chat_id
+    username = update.message.text
+
+    bot.send_message(chat_id, "Nhập tin nhắn bạn muốn gửi:")
+    context.user_data['username'] = username
+    return "WAITING_MESSAGE"
+
+def waiting_message(update: Update, context):
+    chat_id = update.message.chat_id
+    message = update.message.text
+    username = context.user_data['username']
+
     session_id = len(user_spam_sessions[chat_id]) + 1
-    new_session = {"session_id": session_id, "username": username, "message": text, "is_active": True}
-    user_spam_sessions[chat_id].append(new_session)
+    user_spam_sessions[chat_id].append({'id': session_id, 'username': username, 'message': message, 'is_active': True})
 
-    await message.reply(f"Phiên spam {session_id} đã bắt đầu!")
-    asyncio.create_task(send_message(new_session, chat_id))
+    send_spam(username, message, chat_id, session_id)
 
+    bot.send_message(chat_id, f"Phiên spam {session_id} đã bắt đầu!")
+    return ConversationHandler.END
 
-@dp.message_handler(Text(equals="Danh sách Spam"))
-async def handle_list_spam(message: types.Message):
-    """Handle 'Danh sách Spam'."""
-    chat_id = message.chat.id
-    if chat_id in blocked_users:
-        await message.reply("Bạn đã bị chặn khỏi việc sử dụng bot này.")
+# Xử lý danh sách spam
+def list_spam(update: Update, context):
+    chat_id = update.callback_query.message.chat_id
+
+    if is_blocked(chat_id):
+        bot.send_message(chat_id, "Bạn đã bị chặn khỏi việc sử dụng bot này.")
         return
 
     sessions = user_spam_sessions.get(chat_id, [])
-    if not sessions:
-        await message.reply("Không có phiên spam nào đang hoạt động.")
-        return
+    if sessions:
+        list_message = "Danh sách các phiên spam hiện tại:\n"
+        keyboard = []
+        for session in sessions:
+            list_message += f"{session['id']}: {session['username']} - {session['message']} [Hoạt động: {session['is_active']}]\n"
+            keyboard.append([InlineKeyboardButton(f"Dừng phiên {session['id']}", callback_data=f"stop_{session['id']}")])
 
-    # List active sessions
-    buttons = []
-    for session in sessions:
-        buttons.append(
-            InlineKeyboardButton(f"Dừng phiên {session['session_id']}", callback_data=f"stop_{session['session_id']}")
-        )
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        bot.send_message(chat_id, list_message, reply_markup=reply_markup)
+    else:
+        bot.send_message(chat_id, "Không có phiên spam nào đang hoạt động.")
 
-    await message.reply(
-        "Danh sách các phiên spam hiện tại:",
-        reply_markup=InlineKeyboardMarkup([buttons]),
+# Xử lý dừng phiên
+def stop_spam(update: Update, context):
+    chat_id = update.callback_query.message.chat_id
+    session_id = int(update.callback_query.data.split("_")[1])
+
+    session = next((s for s in user_spam_sessions.get(chat_id, []) if s['id'] == session_id), None)
+    if session:
+        session['is_active'] = False
+        bot.send_message(chat_id, f"Phiên spam {session_id} đã bị dừng.")
+    else:
+        bot.send_message(chat_id, f"Không tìm thấy phiên spam với ID {session_id}.")
+
+# Hàm chính để chạy bot
+def main():
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start), CallbackQueryHandler(start_spam, pattern='^start_spam$')],
+        states={
+            "WAITING_USERNAME": [MessageHandler(Filters.text, waiting_username)],
+            "WAITING_MESSAGE": [MessageHandler(Filters.text, waiting_message)]
+        },
+        fallbacks=[CallbackQueryHandler(list_spam, pattern='^list_spam$'), CallbackQueryHandler(stop_spam, pattern='^stop_')]
     )
 
+    dp.add_handler(conv_handler)
 
-@dp.callback_query_handler(lambda c: c.data.startswith("stop_"))
-async def handle_stop_spam(callback_query: types.CallbackQuery):
-    """Handle stop spam session."""
-    chat_id = callback_query.message.chat.id
-    session_id = int(callback_query.data.split("_")[1])
+    updater.start_polling()
+    updater.idle()
 
-    sessions = user_spam_sessions.get(chat_id, [])
-    session = next((s for s in sessions if s["session_id"] == session_id), None)
-
-    if session:
-        session["is_active"] = False
-        await bot.send_message(chat_id, f"Phiên spam {session_id} đã bị dừng.")
-    else:
-        await bot.send_message(chat_id, f"Không tìm thấy phiên spam với ID {session_id}.")
-
-
-if __name__ == "__main__":
-    print("Bot đang chạy...")
-    # Use dp.start_polling() instead of executor
-    asyncio.run(dp.start_polling())
+if __name__ == '__main__':
+    main()
