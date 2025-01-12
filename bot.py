@@ -509,52 +509,38 @@ async def shutdown(app: Application) -> None:
     logger.info("Bot đã dừng thành công.")
 
 
-async def setup_application(token: str) -> Application:
-    conn = create_connection()
-    conn.close()  # close for now since it might not be used immediately.
-    application = ApplicationBuilder().token(token).build()
 
-    start_handler = CommandHandler("start", start_command)
-    start_button_handler = CallbackQueryHandler(handle_start_button, pattern="start_report")
-    cookie_handler = CommandHandler("cookie", cookie_command)
-    report_handler = CommandHandler("report", report_command)
-    message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
+async def main() -> None:
+        application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    application.add_handler(start_handler)
-    application.add_handler(start_button_handler)
-    application.add_handler(cookie_handler)
-    application.add_handler(report_handler)
-    application.add_handler(message_handler)
-    return application
+        start_handler = CommandHandler("start", start_command)
+        start_button_handler = CallbackQueryHandler(handle_start_button, pattern="start_report")
+        cookie_handler = CommandHandler("cookie", cookie_command)
+        report_handler = CommandHandler("report", report_command)
+        message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
 
+        application.add_handler(start_handler)
+        application.add_handler(start_button_handler)
+        application.add_handler(cookie_handler)
+        application.add_handler(report_handler)
+        application.add_handler(message_handler)
 
-def run_application(application: Application):
-    loop = asyncio.get_event_loop()
+        loop = asyncio.get_event_loop()
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(
-            sig, lambda: asyncio.create_task(shutdown(application))
-        )
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(
+                sig, lambda: asyncio.create_task(shutdown(application))
+            )
+        try:
+           await application.run_polling()
+        except Exception as e:
+             logger.error(f"Không thể chạy bot: {e}")
+        finally:
+             if not loop.is_closed():
+                 await application.stop()
+                 loop.close()
 
-    try:
-        loop.run_until_complete(application.run_polling())
-    except KeyboardInterrupt:
-        pass
-    finally:
-        if not loop.is_closed():
-            loop.run_until_complete(application.stop())
-            loop.close()
-
-
-def main() -> None:
-    try:
-        application = asyncio.run(setup_application(TELEGRAM_TOKEN))
-        run_application(application)
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        logger.error(f"Không thể chạy bot: {e}")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
