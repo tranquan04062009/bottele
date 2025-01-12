@@ -1,7 +1,5 @@
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import exceptions
-from aiogram.dispatcher.filters import Text
 import os
 import random
 import requests
@@ -70,8 +68,9 @@ async def send_message(session: dict, chat_id: int):
 
             await asyncio.sleep(SPAM_RATE_LIMIT)
 
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             print(f"[Lỗi] {e}")
+            await bot.send_message(chat_id, f"[Lỗi] Không thể gửi tin nhắn: {e}")
             await asyncio.sleep(2)
 
     pbar.close()  # Close progress bar when done
