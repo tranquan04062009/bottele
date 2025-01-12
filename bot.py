@@ -4,15 +4,15 @@ import string
 import time
 import logging
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ConversationHandler
-import requests
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler
+from telegram.ext.filters import Text
 
 # Cấu hình logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Lấy Token từ Biến Môi Trường
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TOKEN:
     raise ValueError("Token chưa được thiết lập trong biến môi trường TELEGRAM_BOT_TOKEN.")
 
@@ -69,15 +69,15 @@ def is_blocked(chat_id):
     return chat_id in blocked_users
 
 # Bắt đầu với lệnh /start
-def start(update: Update, context):
+async def start(update: Update, context):
     chat_id = update.message.chat_id
     user_id = update.message.from_user.id
 
     if is_blocked(chat_id):
-        bot.send_message(chat_id, "Bạn đã bị chặn khỏi việc sử dụng bot này.")
+        await bot.send_message(chat_id, "Bạn đã bị chặn khỏi việc sử dụng bot này.")
         return
 
-    bot.send_message(chat_id, f"Chào mừng! ID Telegram của bạn là: {user_id}")
+    await bot.send_message(chat_id, f"Chào mừng! ID Telegram của bạn là: {user_id}")
 
     if chat_id not in user_spam_sessions:
         user_spam_sessions[chat_id] = []
@@ -87,29 +87,29 @@ def start(update: Update, context):
          InlineKeyboardButton("Danh sách Spam", callback_data='list_spam')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    bot.send_message(chat_id, "Chọn tính năng bạn muốn sử dụng:", reply_markup=reply_markup)
+    await bot.send_message(chat_id, "Chọn tính năng bạn muốn sử dụng:", reply_markup=reply_markup)
 
 # Xử lý bắt đầu spam
-def start_spam(update: Update, context):
+async def start_spam(update: Update, context):
     chat_id = update.callback_query.message.chat_id
 
     if is_blocked(chat_id):
-        bot.send_message(chat_id, "Bạn đã bị chặn khỏi việc sử dụng bot này.")
+        await bot.send_message(chat_id, "Bạn đã bị chặn khỏi việc sử dụng bot này.")
         return
 
-    bot.send_message(chat_id, "Nhập tên người dùng muốn spam:")
+    await bot.send_message(chat_id, "Nhập tên người dùng muốn spam:")
     return "WAITING_USERNAME"
 
 # Xử lý nhận tên người dùng và tin nhắn
-def waiting_username(update: Update, context):
+async def waiting_username(update: Update, context):
     chat_id = update.message.chat_id
     username = update.message.text
 
-    bot.send_message(chat_id, "Nhập tin nhắn bạn muốn gửi:")
+    await bot.send_message(chat_id, "Nhập tin nhắn bạn muốn gửi:")
     context.user_data['username'] = username
     return "WAITING_MESSAGE"
 
-def waiting_message(update: Update, context):
+async def waiting_message(update: Update, context):
     chat_id = update.message.chat_id
     message = update.message.text
     username = context.user_data['username']
@@ -119,15 +119,15 @@ def waiting_message(update: Update, context):
 
     send_spam(username, message, chat_id, session_id)
 
-    bot.send_message(chat_id, f"Phiên spam {session_id} đã bắt đầu!")
+    await bot.send_message(chat_id, f"Phiên spam {session_id} đã bắt đầu!")
     return ConversationHandler.END
 
 # Xử lý danh sách spam
-def list_spam(update: Update, context):
+async def list_spam(update: Update, context):
     chat_id = update.callback_query.message.chat_id
 
     if is_blocked(chat_id):
-        bot.send_message(chat_id, "Bạn đã bị chặn khỏi việc sử dụng bot này.")
+        await bot.send_message(chat_id, "Bạn đã bị chặn khỏi việc sử dụng bot này.")
         return
 
     sessions = user_spam_sessions.get(chat_id, [])
@@ -139,40 +139,43 @@ def list_spam(update: Update, context):
             keyboard.append([InlineKeyboardButton(f"Dừng phiên {session['id']}", callback_data=f"stop_{session['id']}")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        bot.send_message(chat_id, list_message, reply_markup=reply_markup)
+        await bot.send_message(chat_id, list_message, reply_markup=reply_markup)
     else:
-        bot.send_message(chat_id, "Không có phiên spam nào đang hoạt động.")
+        await bot.send_message(chat_id, "Không có phiên spam nào đang hoạt động.")
 
 # Xử lý dừng phiên
-def stop_spam(update: Update, context):
+async def stop_spam(update: Update, context):
     chat_id = update.callback_query.message.chat_id
     session_id = int(update.callback_query.data.split("_")[1])
 
     session = next((s for s in user_spam_sessions.get(chat_id, []) if s['id'] == session_id), None)
     if session:
         session['is_active'] = False
-        bot.send_message(chat_id, f"Phiên spam {session_id} đã bị dừng.")
+        await bot.send_message(chat_id, f"Phiên spam {session_id} đã bị dừng.")
     else:
-        bot.send_message(chat_id, f"Không tìm thấy phiên spam với ID {session_id}.")
+        await bot.send_message(chat_id, f"Không tìm thấy phiên spam với ID {session_id}.")
 
 # Hàm chính để chạy bot
 def main():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
+    application = Application.builder().token(TOKEN).build()
 
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start), CallbackQueryHandler(start_spam, pattern='^start_spam$')],
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CallbackQueryHandler(start_spam, pattern='^start_spam$'))
+    application.add_handler(CallbackQueryHandler(list_spam, pattern='^list_spam$'))
+    application.add_handler(CallbackQueryHandler(stop_spam, pattern='^stop_'))
+
+    # Đăng ký các trạng thái và chuyển đổi của conversation handler
+    conversation_handler = ConversationHandler(
+        entry_points=[MessageHandler(Text, waiting_username)],
         states={
-            "WAITING_USERNAME": [MessageHandler(Filters.text, waiting_username)],
-            "WAITING_MESSAGE": [MessageHandler(Filters.text, waiting_message)]
+            "WAITING_USERNAME": [MessageHandler(Text, waiting_username)],
+            "WAITING_MESSAGE": [MessageHandler(Text, waiting_message)],
         },
-        fallbacks=[CallbackQueryHandler(list_spam, pattern='^list_spam$'), CallbackQueryHandler(stop_spam, pattern='^stop_')]
+        fallbacks=[MessageHandler(Text, list_spam)]
     )
+    application.add_handler(conversation_handler)
 
-    dp.add_handler(conv_handler)
-
-    updater.start_polling()
-    updater.idle()
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
