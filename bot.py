@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import requests
 from tqdm import tqdm  # Thư viện thanh tiến trình
 
-# Load environment variable
+# Load environment variables
 load_dotenv()
 TOKEN = os.getenv('BOT_TOKEN')
 
