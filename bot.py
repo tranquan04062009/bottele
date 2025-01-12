@@ -303,7 +303,7 @@ class FacebookApiVIP:
                         raise ReportError(
                             f"Báo cáo thất bại: mã trạng thái {response.status}"
                         )
-                await asyncio.sleep(report_speed) # Add delay after each report.
+                await asyncio.sleep(report_speed)  # Add delay after each report.
             except aiohttp.ClientError as e:
                 logger.error(
                     f"Lỗi khi thực hiện báo cáo với lý do '{reason_description}': {e}"
@@ -502,44 +502,50 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     finally:
         conn.close()
 
-
 async def shutdown(app: Application) -> None:
     logger.info("Đang tắt bot một cách êm ái...")
-    await app.stop()
+    try:
+         await app.stop()
+    except Exception as e:
+        logger.error(f"Lỗi trong quá trình shutdown bot: {e}")
     logger.info("Bot đã dừng thành công.")
 
 
-
 async def main() -> None:
-        application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    conn = create_connection()
+    conn.close()  # close for now since it might not be used immediately.
+    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-        start_handler = CommandHandler("start", start_command)
-        start_button_handler = CallbackQueryHandler(handle_start_button, pattern="start_report")
-        cookie_handler = CommandHandler("cookie", cookie_command)
-        report_handler = CommandHandler("report", report_command)
-        message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
+    start_handler = CommandHandler("start", start_command)
+    start_button_handler = CallbackQueryHandler(handle_start_button, pattern="start_report")
+    cookie_handler = CommandHandler("cookie", cookie_command)
+    report_handler = CommandHandler("report", report_command)
+    message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
 
-        application.add_handler(start_handler)
-        application.add_handler(start_button_handler)
-        application.add_handler(cookie_handler)
-        application.add_handler(report_handler)
-        application.add_handler(message_handler)
+    application.add_handler(start_handler)
+    application.add_handler(start_button_handler)
+    application.add_handler(cookie_handler)
+    application.add_handler(report_handler)
+    application.add_handler(message_handler)
 
-        loop = asyncio.get_event_loop()
+    loop = asyncio.get_event_loop()
 
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(
-                sig, lambda: asyncio.create_task(shutdown(application))
-            )
-        try:
-           await application.run_polling()
-        except Exception as e:
-             logger.error(f"Không thể chạy bot: {e}")
-        finally:
-             if not loop.is_closed():
-                 await application.stop()
-                 loop.close()
-
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(
+            sig, lambda: asyncio.create_task(shutdown(application))
+        )
+    try:
+        await application.run_polling()
+    except Exception as e:
+         logger.error(f"Không thể chạy bot: {e}")
+    finally:
+        if not loop.is_closed():
+            try:
+               await application.stop()
+            except Exception as e:
+                logger.error(f"Lỗi khi dừng application: {e}")
+            finally:
+                loop.close()
 
 
 if __name__ == "__main__":
