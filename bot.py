@@ -79,24 +79,7 @@ async def send_message(session: dict, chat_id: int):
     await bot.send_message(chat_id, f"Phiên {session_id} đã kết thúc. Tổng tin nhắn đã gửi: {counter}")
 
 
-@dp.message_handler(commands=["start"])
-async def start_command(message: types.Message):
-    """Handle /start command."""
-    chat_id = message.chat.id
-    if chat_id in blocked_users:
-        await message.reply("Bạn đã bị chặn khỏi việc sử dụng bot này.")
-        return
-
-    # Initialize spam session for new users
-    user_spam_sessions.setdefault(chat_id, [])
-    await message.reply(
-        "Chào mừng! Sử dụng các nút bên dưới để bắt đầu:",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton("Bắt đầu Spam"), KeyboardButton("Danh sách Spam")]],
-            resize_keyboard=True,
-        ),
-    )
-
+dp.register_message_handler(start_command, commands=["start"])  # Register start command handler
 
 @dp.message_handler(Text(equals="Bắt đầu Spam"))
 async def handle_start_spam(message: types.Message):
