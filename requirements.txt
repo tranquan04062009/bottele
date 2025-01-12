@@ -1,4 +1,5 @@
 python-telegram-bot==20.8
 tqdm
 requests
+aiogram
 python-dotenv
