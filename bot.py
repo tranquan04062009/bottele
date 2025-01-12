@@ -17,7 +17,7 @@ from telegram.ext import (
 import aiohttp
 from dataclasses import dataclass, field
 import sqlite3
-from pydantic import BaseModel, validator, ValidationError
+from pydantic import BaseModel, field_validator, ValidationError
 
 # Configure logging
 logging.basicConfig(
@@ -75,19 +75,20 @@ class UserInput(BaseModel):
     target_id: str
     timeout: int
     report_speed: int
-    @validator("target_id")
+
+    @field_validator("target_id")
     def validate_target_id(cls, value):
         if not value.isdigit():
             raise ValueError("ID mục tiêu không hợp lệ. Vui lòng nhập ID số.")
         return value
 
-    @validator("timeout")
+    @field_validator("timeout")
     def validate_timeout(cls, value):
         if value <= 0:
             raise ValueError("Thời gian chờ phải là một số dương.")
         return value
 
-    @validator("report_speed")
+    @field_validator("report_speed")
     def validate_report_speed(cls, value):
         if value < 0:
             raise ValueError("Tốc độ báo cáo phải là một số dương.")
@@ -112,7 +113,7 @@ class UserState:
             "cookie": self.cookie,
             "target_id": self.target_id,
             "timeout": self.timeout,
-             "report_speed": self.report_speed,
+            "report_speed": self.report_speed,
         }
 
 
@@ -146,7 +147,7 @@ def save_user_state_db(conn: sqlite3.Connection, user_id: int, user_state: UserS
             user_state.cookie,
             user_state.target_id,
             user_state.timeout,
-             user_state.report_speed,
+            user_state.report_speed,
         ),
     )
     conn.commit()
@@ -210,7 +211,7 @@ class FacebookApiVIP:
             "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
             "sec-fetch-site": "same-origin",
             "sec-fetch-mode": "navigate",
-            "sec-fetch-user": "?1",
+            "sec-fetch-user": "?1',
             "sec-fetch-dest": "document",
             "referer": "https://mbasic.facebook.com/",
             "accept-language": "en-US,en;q=0.9",
@@ -302,7 +303,7 @@ class FacebookApiVIP:
                         raise ReportError(
                             f"Báo cáo thất bại: mã trạng thái {response.status}"
                         )
-                await asyncio.sleep(report_speed) # Add delay after each report.
+                await asyncio.sleep(report_speed)  # Add delay after each report.
             except aiohttp.ClientError as e:
                 logger.error(
                     f"Lỗi khi thực hiện báo cáo với lý do '{reason_description}': {e}"
@@ -475,23 +476,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                text="Tuyệt! Bây giờ, hãy nhập tốc độ báo cáo (thời gian chờ giữa các lần báo cáo, tính bằng giây)",
            )
         elif state_data.state == "waiting_for_report_speed":
-           validated_input = UserInput(
+            validated_input = UserInput(
                 target_id=state_data.target_id, timeout=state_data.timeout, report_speed = message_text
-           )
-           state_data.report_speed = validated_input.report_speed
-           state_data.state = "processing_report"
-           save_user_state_db(conn, user_id, state_data)
-           asyncio.create_task(handle_report_request(user_id, state_data, context))
+            )
+            state_data.report_speed = validated_input.report_speed
+            state_data.state = "processing_report"
+            save_user_state_db(conn, user_id, state_data)
+            asyncio.create_task(handle_report_request(user_id, state_data, context))
     except ValidationError as e:
-        logger.error(f"Lỗi xác thực cho người dùng {user_id}: {e}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id, text=f"Lỗi xác thực: {e}"
-        )
+         logger.error(f"Lỗi xác thực cho người dùng {user_id}: {e}")
+         await context.bot.send_message(
+           chat_id=update.effective_chat.id, text=f"Lỗi xác thực: {e}"
+         )
     except ValueError as e:
-        logger.error(f"Lỗi đầu vào cho người dùng {user_id}: {e}")
-        await context.bot.send_message(
+         logger.error(f"Lỗi đầu vào cho người dùng {user_id}: {e}")
+         await context.bot.send_message(
             chat_id=update.effective_chat.id, text=f"Lỗi đầu vào: {e}."
-        )
+         )
     except Exception as e:
         logger.error(f"Lỗi không mong muốn khi xử lý tin nhắn cho người dùng {user_id}: {e}")
         await context.bot.send_message(
