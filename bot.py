@@ -211,7 +211,7 @@ class FacebookApiVIP:
             "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
             "sec-fetch-site": "same-origin",
             "sec-fetch-mode": "navigate",
-            "sec-fetch-user": "?1',
+            "sec-fetch-user": "?1",
             "sec-fetch-dest": "document",
             "referer": "https://mbasic.facebook.com/",
             "accept-language": "en-US,en;q=0.9",
@@ -303,7 +303,7 @@ class FacebookApiVIP:
                         raise ReportError(
                             f"Báo cáo thất bại: mã trạng thái {response.status}"
                         )
-                await asyncio.sleep(report_speed)  # Add delay after each report.
+                await asyncio.sleep(report_speed) # Add delay after each report.
             except aiohttp.ClientError as e:
                 logger.error(
                     f"Lỗi khi thực hiện báo cáo với lý do '{reason_description}': {e}"
