@@ -14,7 +14,8 @@ TOKEN = os.getenv('BOT_TOKEN')
 
 # Initialize bot and dispatcher
 bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
+dp.bot = bot  # Gán bot cho dp
 
 # Globals for session management
 user_spam_sessions = {}  # {chat_id: [{session_id, username, message, is_active}]}
