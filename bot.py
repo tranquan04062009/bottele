@@ -47,10 +47,8 @@ async def update_progress(context, progress_tracker):
     """Update progress message periodically"""
     try:
         current_time = datetime.now()
-        # Update every 5 seconds to avoid API rate limits
         if (current_time - progress_tracker.last_update).total_seconds() >= 5:
             progress_text = progress_tracker.format_progress()
-            
             if progress_tracker.message_id:
                 await context.bot.edit_message_text(
                     chat_id=progress_tracker.chat_id,
@@ -63,7 +61,6 @@ async def update_progress(context, progress_tracker):
                     text=progress_text
                 )
                 progress_tracker.message_id = message.message_id
-            
             progress_tracker.last_update = current_time
     except Exception as e:
         print(f"Error updating progress: {str(e)}")
@@ -73,8 +70,13 @@ async def send_message(username: str, message: str, chat_id: int, session_id: in
     progress_tracker = ProgressTracker(chat_id, session_id)
     progress_bars[f"{chat_id}_{session_id}"] = progress_tracker
     
-    while user_spam_sessions.get(chat_id, {}).get(session_id - 1, {}).get('is_active', False):
+    while user_spam_sessions.get(chat_id, {}).get(session_id, {}).get('is_active', False):
         try:
+            # Check if session is paused
+            if user_spam_sessions[chat_id][session_id - 1].get('is_paused', False):
+                await asyncio.sleep(1)
+                continue
+
             device_id = secrets.token_hex(21)
             url = "https://ngl.link/api/submit"
             headers = {
@@ -97,16 +99,13 @@ async def send_message(username: str, message: str, chat_id: int, session_id: in
             print(f"[Error] {str(e)}")
             await asyncio.sleep(2)
 
-    # Final progress update when session ends
     await update_progress(context, progress_tracker)
     await context.bot.send_message(
         chat_id=chat_id,
         text=f"Session {session_id} has ended.\nTotal messages sent: {progress_tracker.counter}"
     )
     
-    # Cleanup
-    if f"{chat_id}_{session_id}" in progress_bars:
-        del progress_bars[f"{chat_id}_{session_id}"]
+    del progress_bars[f"{chat_id}_{session_id}"]
 
 def is_blocked(chat_id: int) -> bool:
     """Check if user is blocked"""
@@ -212,16 +211,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle callback queries"""
     query = update.callback_query
     chat_id = query.message.chat_id
-    session_id = int(query.data.split('_')[1])
+    data = query.data.split('_')
 
-    sessions = user_spam_sessions.get(chat_id, [])
-    session = next((s for s in sessions if s['id'] == session_id), None)
+    if data[0] == "stop":
+        session_id = int(data[1])
+        user_spam_sessions[chat_id][session_id - 1]['is_active'] = False
+        await query.message.reply_text(f"Stopped session {session_id}.")
+    elif data[0] == "pause":
+        session_id = int(data[1])
+        user_spam_sessions[chat_id][session_id - 1]['is_paused'] = True
+        await query.message.reply_text(f"Paused session {session_id}.")
+    elif data[0] == "resume":
+        session_id = int(data[1])
+        user_spam_sessions[chat_id][session_id - 1]['is_paused'] = False
+        await query.message.reply_text(f"Resumed session {session_id}.")
 
-    if session:
-        session['is_active'] = False
-        await query.message.reply_text(f"Stopping spam session {session_id}...")
-    else:
-        await query.message.reply_text(f"Couldn't find spam session with ID {session_id}.")
+    # Final progress update when session ends
+    await update_progress(context, progress_tracker)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"Session {session_id} has ended.\nTotal messages sent: {progress_tracker.counter}"
+    )
+    
+    # Cleanup
+    if f"{chat_id}_{session_id}" in progress_bars:
+        del progress_bars[f"{chat_id}_{session_id}"]
 
 def main():
     """Main function to run the bot"""
