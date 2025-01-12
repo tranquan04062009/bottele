@@ -2,7 +2,6 @@ import asyncio
 import logging
 import re
 import os
-import secrets
 import signal
 from typing import Dict, Optional, Any, Tuple, Callable, List
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -17,7 +16,6 @@ from telegram.ext import (
 )
 import aiohttp
 from dataclasses import dataclass, field
-from cryptography.fernet import Fernet
 import sqlite3
 from pydantic import BaseModel, validator, ValidationError
 
@@ -34,16 +32,6 @@ if not TELEGRAM_TOKEN:
         "Telegram token không được tìm thấy trong biến môi trường TELEGRAM_TOKEN."
     )
     exit()
-
-# Encryption Key (use a proper method for secure key management)
-ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
-if not ENCRYPTION_KEY:
-    ENCRYPTION_KEY = secrets.token_urlsafe(32)
-    logger.warning(
-        "Không tìm thấy khóa mã hóa trong môi trường. Sử dụng khóa được tạo ngẫu nhiên. ĐIỀU NÀY KHÔNG AN TOÀN CHO SẢN XUẤT!"
-    )
-fernet = Fernet(ENCRYPTION_KEY)
-
 
 # Custom Exceptions
 class FacebookApiException(Exception):
@@ -86,7 +74,7 @@ class InvalidInputError(TelegramBotError):
 class UserInput(BaseModel):
     target_id: str
     timeout: int
-
+    report_speed: int
     @validator("target_id")
     def validate_target_id(cls, value):
         if not value.isdigit():
@@ -99,6 +87,12 @@ class UserInput(BaseModel):
             raise ValueError("Thời gian chờ phải là một số dương.")
         return value
 
+    @validator("report_speed")
+    def validate_report_speed(cls, value):
+        if value < 0:
+            raise ValueError("Tốc độ báo cáo phải là một số dương.")
+        return value
+
 
 @dataclass
 class UserState:
@@ -106,6 +100,7 @@ class UserState:
     cookie: Optional[str] = None
     target_id: Optional[str] = None
     timeout: Optional[int] = None
+    report_speed: Optional[int] = None
 
     @classmethod
     def from_dict(cls, data: Dict) -> "UserState":
@@ -117,6 +112,7 @@ class UserState:
             "cookie": self.cookie,
             "target_id": self.target_id,
             "timeout": self.timeout,
+             "report_speed": self.report_speed,
         }
 
 
@@ -131,7 +127,8 @@ def create_connection():
             state TEXT,
             cookie TEXT,
             target_id TEXT,
-            timeout INTEGER
+            timeout INTEGER,
+            report_speed INTEGER
         )
     """
     )
@@ -142,8 +139,15 @@ def create_connection():
 def save_user_state_db(conn: sqlite3.Connection, user_id: int, user_state: UserState):
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT OR REPLACE INTO user_states (user_id, state, cookie, target_id, timeout) VALUES (?, ?, ?, ?, ?)",
-        (user_id, user_state.state, user_state.cookie, user_state.target_id, user_state.timeout),
+        "INSERT OR REPLACE INTO user_states (user_id, state, cookie, target_id, timeout, report_speed) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            user_id,
+            user_state.state,
+            user_state.cookie,
+            user_state.target_id,
+            user_state.timeout,
+             user_state.report_speed,
+        ),
     )
     conn.commit()
 
@@ -153,36 +157,24 @@ def load_user_state_db(
 ) -> Optional[UserState]:
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT state, cookie, target_id, timeout FROM user_states WHERE user_id = ?",
+        "SELECT state, cookie, target_id, timeout, report_speed FROM user_states WHERE user_id = ?",
         (user_id,),
     )
     result = cursor.fetchone()
     if result:
-        state, cookie, target_id, timeout = result
+        state, cookie, target_id, timeout, report_speed = result
         return UserState(
-            state=state, cookie=cookie, target_id=target_id, timeout=timeout
+            state=state,
+            cookie=cookie,
+            target_id=target_id,
+            timeout=timeout,
+            report_speed=report_speed
         )
     return None
 
 
 # User States Dictionary
 user_states: Dict[int, UserState] = {}
-
-
-def encrypt_cookie(cookie: str) -> str:
-    try:
-        return fernet.encrypt(cookie.encode()).decode()
-    except Exception as e:
-        logger.error(f"Lỗi trong quá trình mã hóa cookie: {e}")
-        raise FacebookApiException(f"Mã hóa cookie thất bại: {e}") from e
-
-
-def decrypt_cookie(encrypted_cookie: str) -> str:
-    try:
-        return fernet.decrypt(encrypted_cookie.encode()).decode()
-    except Exception as e:
-        logger.error(f"Lỗi trong quá trình giải mã cookie: {e}")
-        raise FacebookApiException(f"Giải mã cookie thất bại: {e}") from e
 
 
 class FacebookApiVIP:
@@ -268,7 +260,7 @@ class FacebookApiVIP:
                 f"Đã xảy ra lỗi trong quá trình lấy thông tin: {e}"
             ) from e
 
-    async def report_user(self, target_user_id: str, timeout: int) -> None:
+    async def report_user(self, target_user_id: str, timeout: int, report_speed: int) -> None:
         if not self.fb_dtsg or not self.jazoest:
             logger.info("Dữ liệu chưa được tải. Đang tải lại...")
             try:
@@ -310,6 +302,7 @@ class FacebookApiVIP:
                         raise ReportError(
                             f"Báo cáo thất bại: mã trạng thái {response.status}"
                         )
+                await asyncio.sleep(report_speed) # Add delay after each report.
             except aiohttp.ClientError as e:
                 logger.error(
                     f"Lỗi khi thực hiện báo cáo với lý do '{reason_description}': {e}"
@@ -334,14 +327,12 @@ async def handle_report_request(
             raise InvalidInputError(
                 "Không tìm thấy cookie trong dữ liệu, có lỗi trong quy trình."
             )
-
-        decrypted_cookie = decrypt_cookie(state_data.cookie)
-        api = FacebookApiVIP(decrypted_cookie)
+        api = FacebookApiVIP(state_data.cookie)
 
         async with api.session or aiohttp.ClientSession():
             await api.create_session()
             await api.get_thongtin()
-            await api.report_user(state_data.target_id, state_data.timeout)
+            await api.report_user(state_data.target_id, state_data.timeout, state_data.report_speed)
         await context.bot.send_message(
             chat_id=user_id, text="Quá trình báo cáo đã hoàn tất."
         )
@@ -414,7 +405,7 @@ async def cookie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     conn.close()
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Vui lòng gửi cookie Facebook của bạn. Nó sẽ được mã hóa và lưu trữ tạm thời.",
+        text="Vui lòng gửi cookie Facebook của bạn. Nó sẽ được lưu trữ tạm thời.",
     )
 
 
@@ -460,13 +451,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         if state_data.state == "waiting_for_cookie":
-            encrypted_cookie = encrypt_cookie(message_text)
-            state_data.cookie = encrypted_cookie
+            state_data.cookie = message_text
             state_data.state = "idle"
             save_user_state_db(conn, user_id, state_data)
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="Cookie của bạn đã được nhận và mã hóa. Sử dụng lệnh /report để tiếp tục.",
+                text="Cookie của bạn đã được nhận. Sử dụng lệnh /report để tiếp tục.",
             )
         elif state_data.state == "waiting_for_target_id":
             state_data.target_id = message_text
@@ -477,17 +467,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 text="Vui lòng nhập thời gian chờ cho yêu cầu báo cáo (tính bằng giây)",
             )
         elif state_data.state == "waiting_for_timeout":
-            validated_input = UserInput(
-                target_id=state_data.target_id, timeout=message_text
-            )
-            state_data.timeout = validated_input.timeout
-            state_data.state = "processing_report"
-            save_user_state_db(conn, user_id, state_data)
-            asyncio.create_task(handle_report_request(user_id, state_data, context))
+           state_data.timeout = int(message_text)
+           state_data.state = "waiting_for_report_speed"
+           save_user_state_db(conn, user_id, state_data)
+           await context.bot.send_message(
+               chat_id=update.effective_chat.id,
+               text="Tuyệt! Bây giờ, hãy nhập tốc độ báo cáo (thời gian chờ giữa các lần báo cáo, tính bằng giây)",
+           )
+        elif state_data.state == "waiting_for_report_speed":
+           validated_input = UserInput(
+                target_id=state_data.target_id, timeout=state_data.timeout, report_speed = message_text
+           )
+           state_data.report_speed = validated_input.report_speed
+           state_data.state = "processing_report"
+           save_user_state_db(conn, user_id, state_data)
+           asyncio.create_task(handle_report_request(user_id, state_data, context))
     except ValidationError as e:
         logger.error(f"Lỗi xác thực cho người dùng {user_id}: {e}")
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text=f"Lỗi xác thực: {e}"
+        )
+    except ValueError as e:
+        logger.error(f"Lỗi đầu vào cho người dùng {user_id}: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text=f"Lỗi đầu vào: {e}."
         )
     except Exception as e:
         logger.error(f"Lỗi không mong muốn khi xử lý tin nhắn cho người dùng {user_id}: {e}")
