@@ -1,18 +1,21 @@
+import os
 import random
 import string
 import time
 import logging
-from telegram import Bot, Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ConversationHandler
 import requests
-import hashlib
 
 # Cấu hình logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Token và bot
-TOKEN = '7361099428:AAHsbnKKUK_aYNsPZNX4BqMLPg3su79JG90'
+# Lấy Token từ Biến Môi Trường
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("Token chưa được thiết lập trong biến môi trường TELEGRAM_BOT_TOKEN.")
+
 bot = Bot(TOKEN)
 
 # Biến lưu danh sách spam sessions và blocked users
@@ -23,33 +26,43 @@ blocked_users = set()
 def generate_device_id():
     return ''.join(random.choices(string.hexdigits.lower(), k=42))
 
-# Hàm gửi tin nhắn spam
+# Hàm tạo User-Agent ngẫu nhiên
+def generate_user_agent():
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:92.0) Gecko/20100101 Firefox/92.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0"
+    ]
+    return random.choice(user_agents)
+
+# Hàm gửi tin nhắn spam nhanh và nhiều hơn
 def send_spam(username, message, chat_id, session_id):
     counter = 0
     while user_spam_sessions.get(chat_id, {}).get(session_id, {}).get('is_active', False):
         try:
             device_id = generate_device_id()
+            user_agent = generate_user_agent()
             url = "https://ngl.link/api/submit"
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0",
+                "User-Agent": user_agent,
                 "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
             }
             body = {'username': username, 'question': message, 'deviceId': device_id, 'gameSlug': '', 'referrer': ''}
             response = requests.post(url, headers=headers, data=body)
 
             if response.status_code != 200:
-                logger.warning("[Lỗi] Bị giới hạn, đang chờ 5 giây...")
-                time.sleep(5)
+                logger.warning("[Lỗi] Bị giới hạn, đang chờ 3 giây...")
+                time.sleep(3)  # Giảm thời gian chờ để spam nhanh hơn
             else:
                 counter += 1
                 logger.info(f"[Tin nhắn] Phiên {session_id}: Đã gửi {counter} tin nhắn.")
                 bot.send_message(chat_id, f"Phiên {session_id}: Đã gửi {counter} tin nhắn.")
             
-            time.sleep(2)
+            time.sleep(1)  # Giảm thời gian chờ để spam nhanh hơn
 
         except Exception as e:
             logger.error(f"[Lỗi] {e}")
-            time.sleep(2)
+            time.sleep(1)
 
 # Kiểm tra xem người dùng có bị chặn không
 def is_blocked(chat_id):
