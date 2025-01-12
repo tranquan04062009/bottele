@@ -1,451 +1,550 @@
-import logging
 import asyncio
-import os
-from typing import List, Dict, Optional, Union
-from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackContext
-import aiohttp
+import logging
 import re
-from datetime import datetime, timezone
-import random
-from http import HTTPStatus
-
-# Configure Logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-# --- Constants ---
-REPORT_STATE = 0
-DEFAULT_REPORT_LOOPS = 1
-MAX_REPORT_LOOPS = 5 # Avoid overload and getting ban
-USER_AGENT_LIST = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.2 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.2 Mobile/15E148 Safari/604.1"
-]
-ACCEPT_LANGUAGE_LIST = ["en-US,en;q=0.9", "vi-VN,vi;q=0.9", "fr-FR,fr;q=0.8","es-ES,es;q=0.9", "ko-KR,ko;q=0.9","zh-CN,zh;q=0.9"]
-TIMEZONE_LIST = ["Asia/Ho_Chi_Minh", "America/New_York", "Europe/London", "Asia/Tokyo", "Europe/Paris","America/Los_Angeles"]
-
-# --- Global Variables ---
-user_data: Dict[str, Dict[str, str]] = {}  # In-memory user data
-bot = None
-
-# --- Helper Functions ---
-def get_time() -> str:
-    """Gets the current UTC time in a formatted string."""
-    dt = datetime.now(timezone.utc)
-    tzutc_format = "%Y-%m-%d %H:%M:%S %Z%z"
-    return dt.strftime(tzutc_format)
+import json
+import os
+import secrets
+import signal
+from typing import Dict, Optional, Any, Tuple, Callable, List
+from telegram import Update
+from telegram.ext import (
+    Application,
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
+import aiohttp
+from dataclasses import dataclass, field
+from cryptography.fernet import Fernet
+import sqlite3
+from pydantic import BaseModel, validator, ValidationError
 
 
-# Get Environment Variables
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+# Configure logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 
-# --- HTTP Request Functions ---
-def generate_fake_headers(referer: str = "") -> Dict[str, str]:
-    """Generates fake HTTP headers for requests."""
-    user_agent = random.choice(USER_AGENT_LIST)
-    accept_language = random.choice(ACCEPT_LANGUAGE_LIST)
-    headers = {
-        "Host": "mbasic.facebook.com",
-        "upgrade-insecure-requests": "1",
-        "save-data": "on",
-        "user-agent": user_agent,
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-        "sec-fetch-site": "same-origin",
-        "sec-fetch-mode": "navigate",
-        "sec-fetch-user": "?1",
-        "sec-fetch-dest": "document",
-        "accept-language": accept_language
-    }
-    if referer:
-        headers['referer'] = referer
-    return headers
-
-
-def generate_fake_time_zone() -> str:
-    """Generates a random timezone."""
-    return random.choice(TIMEZONE_LIST)
-
-async def fetch_url(
-    session: aiohttp.ClientSession,
-    url: str,
-    headers: Optional[Dict[str, str]] = None,
-    cookies: Optional[Dict[str, str]] = None,
-    timeout: int = 20,
-) -> Optional[str]:
-    """Fetches the content of a URL."""
+# Load configuration
+def load_config() -> dict:
     try:
-        async with session.get(url, headers=headers, cookies=cookies, timeout=timeout) as response:
-             if response and response.status == HTTPStatus.OK:
-                 return await response.text()
-             else:
-                 log_message = f"Lỗi khi tải URL: {url}, trạng thái: {response.status if response else 'N/A'}"
-                 logging.error(log_message)
-                 return None
-
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        logging.error(f"Lỗi khi tải URL: {url}, lỗi {e}")
-        return None
-    except Exception as e:
-        logging.error(f"Lỗi không xác định khi tải URL: {url}, lỗi {e}")
-        return None
+        with open("config.json", "r") as f:
+            config = json.load(f)
+            return config
+    except FileNotFoundError:
+        logger.error(
+            "config.json not found. Ensure it exists in the same folder as the script."
+        )
+        exit()
+    except json.JSONDecodeError:
+        logger.error("Error decoding config.json. Please check that its JSON syntax is correct.")
+        exit()
 
 
-async def post_data(
-    session: aiohttp.ClientSession,
-    url: str,
-    data: str,
-    headers: Optional[Dict[str, str]] = None,
-    cookies: Optional[Dict[str, str]] = None,
-    timeout: int = 20,
-) -> Optional[str]:
-    """Posts data to a URL and returns the final URL after redirects."""
-    try:
-        async with session.post(url, data=data, headers=headers, cookies=cookies, allow_redirects=True, timeout=timeout) as response:
-            if response and response.status == HTTPStatus.OK:
-                 return str(response.url)
-            else:
-                 log_message = f"Lỗi khi gửi dữ liệu đến URL: {url}, trạng thái: {response.status if response else 'N/A'}"
-                 logging.error(log_message)
-                 return None
+config = load_config()
 
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        logging.error(f"Lỗi khi gửi dữ liệu đến URL: {url}, lỗi {e}")
-        return None
-    except Exception as e:
-         logging.error(f"Lỗi không xác định khi gửi dữ liệu đến URL: {url}, lỗi {e}")
-         return None
+TELEGRAM_TOKEN = config.get("telegram_token")
+if not TELEGRAM_TOKEN:
+    logger.error("Telegram token not found in config.json")
+    exit()
 
 
-def generate_url(target_id: str) -> str:
-   """Generate the URL if the user id or a page id"""
-   return  f"https://mbasic.facebook.com/{target_id}" # If the id is a name, lets handle the request like it is a user
-
-async def process_report_cycle(
-    session: aiohttp.ClientSession,
-    target_id: str,
-    cookie: str,
-    report_messages: List[str],
-    time: str,
-    loop_number: int,
-) -> bool:
-    """Processes a single reporting cycle with different types of reports."""
-    report_types = [
-        ('spam', 'spam'), ('fake_account', 'fake account'),
-        ('violates_terms', 'violates terms'),
-         ('bullying_harassment','bullying or harassment'),
-        ('violence','Violence'),
-        ('nudity','Nudity'),
-         ('hate_speech','Hate Speech') ,
-         ('terrorism', 'Terrorism'),
-        ('not_qualified', 'This content is not qualified for community standars'),
-          ('other', 'Other Reason')
-         ]  # Added several more reasons
-
-    for tag, reason in report_types: # Report a variety of reasons
-        try:
-          report_url = generate_url(target_id)
-          headers = generate_fake_headers()
-          data = await fetch_url(session, report_url, headers=headers, cookies={"cookie": cookie})
-
-          if not data:
-               error_msg = f"Lỗi khi tải URL đầu tiên (loại: {reason}): {report_url} cho target_id {target_id} lúc {time}"
-               logging.error(error_msg)
-               report_messages.append(error_msg)
-               return False
-          if "xs=deleted" in data:
-                error_msg = f'Cookie đã hết hạn cho ID: {target_id}'
-                logging.warning(error_msg)
-                report_messages.append(error_msg)
-                return False
-          redirect_match = re.search(r'location: (.*?)\r\n', data)
-          if redirect_match:
-                 redirect_url = redirect_match.group(1).strip()
-                 headers = generate_fake_headers(referer=report_url)
-                 redirect_data = await fetch_url(session, redirect_url, headers=headers)
-
-                 if not redirect_data:
-                      error_msg = f'Lỗi khi tải URL chuyển hướng (loại: {reason}): {redirect_url} cho target_id: {target_id} lúc {time}'
-                      logging.error(error_msg)
-                      report_messages.append(error_msg)
-                      return False
-                 action_match = re.search(r'/nfx/basic/direct_actions/(.*?)"', redirect_data)
-                 if action_match:
-                    action_data = action_match.group(1).strip()
-                    l1, l2, l3 = action_data.split("amp;")
-                    link1 = f"https://mbasic.facebook.com/nfx/basic/direct_actions/{l1}{l2}{l3}"
-                    headers = generate_fake_headers(referer=redirect_url)
-                    link1_data = await fetch_url(session, link1, headers=headers, cookies={"cookie": cookie})
-
-                    if not link1_data:
-                            error_msg = f'Lỗi tại link1 (loại: {reason}): {link1} cho id: {target_id} lúc {time}'
-                            logging.error(error_msg)
-                            report_messages.append(error_msg)
-                            return False
-
-                    handle_action_match = re.search(r'/nfx/basic/handle_action/(.*?)"', link1_data)
-                    if handle_action_match:
-                         handle_action_data = handle_action_match.group(1).strip()
-                         z1, z2, z3, z4, z5, z6 = handle_action_data.split('amp;')
-                         fb_dtsg_match = re.search(r'name="fb_dtsg" value="(.*?)"', link1_data)
-                         jazoest_match = re.search(r'name="jazoest" value="(.*?)"', link1_data)
-
-                         if fb_dtsg_match and jazoest_match:
-                            fb_dtsg = fb_dtsg_match.group(1).strip()
-                            jazoest = jazoest_match.group(1).strip()
-                            link2 = f"https://mbasic.facebook.com/nfx/basic/handle_action/{z1}{z2}{z3}{z4}{z5}{z6}"
-                            data = f"fb_dtsg={fb_dtsg}&jazoest={jazoest}&action_key=RESOLVE_PROBLEM&submit=Gửi"
-                            headers = generate_fake_headers(referer=link1)
-                            headers['content-length'] = str(len(data))
-                            headers['content-type'] = "application/x-www-form-urlencoded"
-                            link3 = await post_data(session, link2, data, headers=headers, cookies={"cookie": cookie})
-                            if not link3:
-                                error_msg = f'Lỗi khi gửi dữ liệu tại route {link2} (loại: {reason}) cho target_id = {target_id} lúc {time}'
-                                logging.error(error_msg)
-                                report_messages.append(error_msg)
-                                return False
-
-                            headers = generate_fake_headers(referer=link2)
-                            link3_data = await fetch_url(session, link3, headers=headers, cookies={"cookie": cookie})
-                            if not link3_data:
-                                    error_msg = f'Lỗi tại route cuối của report thứ nhất (loại: {reason}) cho target_id: {target_id} lúc {time}'
-                                    logging.error(error_msg)
-                                    report_messages.append(error_msg)
-                                    return False
-                            tag_match = re.search(r'/ixt/screen/frxtagselectionscreencustom/post/msite/(.*?)"', link3_data)
-                            if tag_match:
-                              tag_data = tag_match.group(1).strip()
-                              x1, x2 = tag_data.split('amp;')
-                              fb_dtsg_match = re.search(r'name="fb_dtsg" value="(.*?)"', link3_data)
-                              jazoest_match = re.search(r'name="jazoest" value="(.*?)"', link3_data)
-                              if fb_dtsg_match and jazoest_match:
-                                   fb_dtsg = fb_dtsg_match.group(1).strip()
-                                   jazoest = jazoest_match.group(1).strip()
-                                   link4 = f"https://mbasic.facebook.com/ixt/screen/frxtagselectionscreencustom/post/msite/{x1}{x2}"
-                                   data = f"fb_dtsg={fb_dtsg}&jazoest={jazoest}&tag={tag}&action=Gửi"
-                                   headers = generate_fake_headers(referer=link3)
-                                   headers['content-length'] = str(len(data))
-                                   headers['content-type'] = "application/x-www-form-urlencoded"
-                                   link5 = await post_data(session, link4, data, headers=headers, cookies={"cookie": cookie})
-                                   if not link5:
-                                     error_msg = f'Lỗi tại tag {reason} bước 2 cho ID:{target_id} lúc {time}'
-                                     logging.error(error_msg)
-                                     report_messages.append(error_msg)
-                                     return False
-
-                                   headers = generate_fake_headers(referer=link4)
-                                   link5_data = await fetch_url(session, link5, headers=headers, cookies={"cookie": cookie})
-                                   if not link5_data:
-                                        error_msg = f'Lỗi tại route loại 2 (loại: {reason}), id: {target_id}, time = {time}'
-                                        logging.error(error_msg)
-                                        report_messages.append(error_msg)
-                                        return False
-
-                                   rapid_report_match = re.search(r'/rapid_report/basic/actions/post/(.*?)"', link5_data)
-                                   if rapid_report_match:
-                                        rapid_report_data = rapid_report_match.group(1).strip()
-                                        x1, x2, x3, x4 = rapid_report_data.split('amp;')
-                                        fb_dtsg_match = re.search(r'name="fb_dtsg" value="(.*?)"', link5_data)
-                                        jazoest_match = re.search(r'name="jazoest" value="(.*?)"', link5_data)
-
-                                        if fb_dtsg_match and jazoest_match:
-                                             fb_dtsg = fb_dtsg_match.group(1).strip()
-                                             jazoest = jazoest_match.group(1).strip()
-                                             link6 = f"https://mbasic.facebook.com/rapid_report/basic/actions/post/{x1}{x2}{x3}{x4}"
-                                             data = f"fb_dtsg={fb_dtsg}&jazoest={jazoest}&action=Gửi"
-                                             headers = generate_fake_headers(referer=link5)
-                                             headers['content-length'] = str(len(data))
-                                             headers['content-type'] = "application/x-www-form-urlencoded"
-                                             result = await post_data(session, link6, data, headers=headers, cookies={"cookie": cookie})
-                                             if not result:
-                                               error_msg = f'Lỗi tại bước gửi report cuối (loại: {reason}), target_id = {target_id} lúc {time}'
-                                               logging.error(error_msg)
-                                               report_messages.append(error_msg)
-                                               return False
-                                             success_msg = f"Đã gửi report (loại: {reason}) thành công vòng thứ: {loop_number}, id: {target_id}"
-                                             report_messages.append(success_msg)
-                                             break
-        except Exception as e:
-            error_msg = f"Lỗi không xác định khi xử lý report (loại: {reason}) cho target id {target_id}: {e} lúc {time}"
-            logging.exception(error_msg)
-            report_messages.append(error_msg)
-    return True
-
-async def process_report(user_id: str, target_id: str, cookie: Optional[str], chat_id: int, loops: int):
-    """Manages the report processing flow."""
-    time = get_time()
-    report_messages = []
-    os.environ['TZ'] = generate_fake_time_zone()
-    try:
-        async with aiohttp.ClientSession() as session:
-            for loop_number in range(1, loops + 1):
-                logging.info(f"User {user_id} đang xử lý vòng {loop_number}/{loops} cho target {target_id} lúc {time}")
-                report_messages.append(f"Bắt đầu vòng lặp {loop_number} - Báo cáo {target_id}")
-                if not await process_report_cycle(session, target_id, cookie, report_messages, time, loop_number):
-                    logging.error(f'Quá trình report dừng cho user: {user_id} với target id {target_id} tại vòng = {loop_number} lúc {time}')
-                    break  # Stop on the first failure
-            for msg in report_messages:
-                 try:
-                    await bot.send_message(chat_id=chat_id, text=msg)
-                 except Exception as e:
-                     logging.error(f'Lỗi khi gửi tin nhắn đến user {user_id} trong chat id {chat_id}: {msg}, lỗi = {e}')
-    except Exception as e:
-        error_msg = f"Lỗi trong quá trình report chính cho user_id: {user_id}: {e} lúc {time}"
-        logging.exception(error_msg)
-        await bot.send_message(chat_id=chat_id, text=error_msg)
-
-    #Ask if the user wants to report again
-    if user_id in user_data:
-        await bot.send_message(chat_id=chat_id, text=f"Đã hoàn thành báo cáo cho {target_id}. Bạn có muốn báo cáo lại ID này không? (có/không)")
-        return
-
-# Command Handlers
-async def ask_for_report(update: Update, context: CallbackContext) -> int:
-    """Asks for the target ID."""
-    await update.message.reply_text("Vui lòng nhập ID người dùng hoặc trang cần báo cáo:")
-    return REPORT_STATE
-
-
-async def ask_for_cookie_or_token(update: Update, context: CallbackContext) -> Optional[int]:
-    """Asks for the cookie or token after receiving the target ID."""
-    if 'target_id' in context.user_data:
-        target_id = context.user_data['target_id']
-        if  re.match(r'^\d+$', target_id) :
-           await update.message.reply_text('Tuyệt vời, bây giờ hãy gửi cookie Facebook:')
-        else:
-           await update.message.reply_text('Tuyệt vời, bây giờ hãy gửi token Facebook:')
-
-        return REPORT_STATE + 1
-    else:
-       await update.message.reply_text('Lỗi: Bạn chưa nhập ID người dùng. Vui lòng dùng /set trước.')
-       return ConversationHandler.END
-
-async def save_id_cookie(update: Update, context: CallbackContext) -> int:
-    """Saves the target ID and cookie or token to user data."""
-    user_id = str(update.effective_user.id)
-    target_id = context.user_data['target_id']
-    cookie_or_token = update.message.text.strip()
-    global user_data
-
-    try:
-        if re.match(r'^\d+$', target_id):
-              user_data[user_id] = {"target_id": target_id, "cookie": cookie_or_token}
-              await update.message.reply_text(f'Đã cập nhật dữ liệu người dùng với ID mục tiêu: {target_id}, độ dài cookie: {len(cookie_or_token)}')
-              logging.info(f'Đã cập nhật report mới cho user {user_id}')
-              return ConversationHandler.END
-
-        else:
-              user_data[user_id] = {"target_id": target_id, "token": cookie_or_token}
-              await update.message.reply_text(f"Đã cập nhật dữ liệu với ID : {target_id} và Token dài: {len(cookie_or_token)}")
-              logging.info(f'Đã cập nhật report mới cho user {user_id}')
-              return ConversationHandler.END
-
-    except Exception as error:
-       await update.message.reply_text(f'Lỗi khi xử lý yêu cầu report: {error}')
-       logging.error(f'Lỗi trong save_id_cookie cho user {user_id}: {error}')
-       return ConversationHandler.END
-
-
-async def start_report_command(update: Update, context: CallbackContext) -> None:
-    """Starts the report process."""
-    global bot, user_data
-    user_id = str(update.effective_user.id)
-    chat_id = update.message.chat_id
-    logging.info(f'Command /report được thực thi cho user {user_id}')
-
-    try:
-         if user_id in user_data:
-              user = user_data[user_id]
-              target_id = user["target_id"]
-              cookie = user.get("cookie")
-              token = user.get("token")
-              loops = DEFAULT_REPORT_LOOPS
-              if context.args and context.args[0].isdigit():
-                 loops = int(context.args[0])
-                 if loops > MAX_REPORT_LOOPS:
-                   loops = MAX_REPORT_LOOPS
-
-              if cookie:
-                 await bot.send_message(chat_id=chat_id, text=f'Bắt đầu {loops} report cho user hoặc id : {target_id}, với cookie có độ dài: {len(cookie) if cookie else "None"}')
-                 asyncio.create_task(process_report(user_id, target_id, cookie, chat_id,loops))
-              elif token:
-                 await bot.send_message(chat_id=chat_id, text=f"Bắt đầu {loops} báo cáo cho id trang hoặc user: {target_id}, với token dài : {len(token)}")
-                 asyncio.create_task(process_report(user_id, target_id, token, chat_id, loops))
-         else:
-              await update.message.reply_text("Bạn chưa thêm ID và cookie hoặc token để báo cáo.")
-    except Exception as e:
-       await update.message.reply_text(f"Lỗi khi thực thi lệnh: {e}")
-       logging.error(f'Lỗi trong start_report_command cho user {user_id}: {e}')
-
-async def handle_report_again(update: Update, context: CallbackContext) -> None:
-    """Handle the case where the user answers if want to report again"""
-    global bot, user_data
-    user_id = str(update.effective_user.id)
-    chat_id = update.message.chat_id
-    text = update.message.text.strip().lower()
-
-    if text == "có":
-       if user_id in user_data:
-           user = user_data[user_id]
-           target_id = user["target_id"]
-           cookie = user.get("cookie")
-           token = user.get("token")
-           loops = DEFAULT_REPORT_LOOPS
-
-           if cookie:
-                await bot.send_message(chat_id=chat_id, text=f'Bắt đầu report lại cho id : {target_id}, với cookie có độ dài: {len(cookie) if cookie else "None"}')
-                asyncio.create_task(process_report(user_id, target_id, cookie, chat_id, loops))
-
-           elif token:
-                 await bot.send_message(chat_id=chat_id, text=f'Bắt đầu report lại cho id : {target_id}, với token có độ dài: {len(token) if token else "None"}')
-                 asyncio.create_task(process_report(user_id, target_id, token, chat_id, loops))
-
-
-       else:
-            await update.message.reply_text("Không có dữ liệu để báo cáo lại.")
-    elif text == "không":
-         if user_id in user_data:
-             del user_data[user_id]
-             await update.message.reply_text("Đã xóa thông tin ID và cookie của bạn.")
-    else:
-      await update.message.reply_text("Vui lòng trả lời 'có' hoặc 'không'.")
-
-
-async def successful_start(update: Update, context: CallbackContext) -> None:
-    """Simple handler to check the bot is running"""
-    await update.message.reply_text("Bot đang chạy")
-
-async def cancel(update: Update, context: CallbackContext) -> int:
-    """Cancels and ends the conversation."""
-    await update.message.reply_text("Thao tác đã bị hủy.")
-    return ConversationHandler.END
-
-def init_bot():
-    """Initialize bot and run it"""
-    if not TOKEN:
-        logging.critical('Telegram TOKEN không tìm thấy, hãy set env TELEGRAM_BOT_TOKEN')
-        return
-    application = Application.builder().token(TOKEN).build()
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('set', ask_for_report)],
-        states={
-           REPORT_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_for_cookie_or_token)],
-           REPORT_STATE + 1: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_id_cookie)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
+# Encryption Key (use a proper method for secure key management)
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    ENCRYPTION_KEY = secrets.token_urlsafe(32)
+    logger.warning(
+        "No encryption key found in environment. Using randomly generated key. THIS IS NOT SECURE FOR PRODUCTION!"
     )
-    application.add_handler(conv_handler)
-    application.add_handler(CommandHandler("start", successful_start))
-    application.add_handler(CommandHandler("report", start_report_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_report_again))
-    global bot
-    bot = application.bot  # declare global var
-    logging.info('Bot đã khởi động')
-    application.run_polling(allowed_updates=["message", "callback_query", "inline_query"])
+fernet = Fernet(ENCRYPTION_KEY)
 
 
-if __name__ == '__main__':
-    init_bot()
+# Custom Exceptions
+class FacebookApiException(Exception):
+    """Base class for exceptions related to Facebook API."""
+
+    pass
+
+
+class InvalidCookieError(FacebookApiException):
+    """Exception raised when an invalid Facebook cookie is used."""
+
+    pass
+
+
+class UserInfoRetrievalError(FacebookApiException):
+    """Exception raised if user info cannot be retrieved."""
+
+    pass
+
+
+class ReportError(FacebookApiException):
+    """Exception raised during reporting a user."""
+
+    pass
+
+
+class TelegramBotError(Exception):
+    """Base class for exceptions in Telegram Bot."""
+
+    pass
+
+
+class InvalidInputError(TelegramBotError):
+    """Exception raised when invalid input is provided to telegram bot"""
+
+    pass
+
+
+# Data validation with Pydantic
+class UserInput(BaseModel):
+    target_id: str
+    timeout: int
+
+    @validator("target_id")
+    def validate_target_id(cls, value):
+        if not value.isdigit():
+            raise ValueError("Invalid target ID format. Please enter a numerical ID.")
+        return value
+
+    @validator("timeout")
+    def validate_timeout(cls, value):
+        if value <= 0:
+            raise ValueError("Timeout must be a positive number")
+        return value
+
+
+@dataclass
+class UserState:
+    state: str = "idle"
+    cookie: Optional[str] = None
+    target_id: Optional[str] = None
+    timeout: Optional[int] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "UserState":
+        return cls(**data)
+
+    def to_dict(self) -> Dict:
+        return {
+            "state": self.state,
+            "cookie": self.cookie,
+            "target_id": self.target_id,
+            "timeout": self.timeout,
+        }
+
+
+# Database setup
+def create_connection():
+    conn = sqlite3.connect("user_states.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_states (
+            user_id INTEGER PRIMARY KEY,
+            state TEXT,
+            cookie TEXT,
+            target_id TEXT,
+            timeout INTEGER
+        )
+    """
+    )
+    conn.commit()
+    return conn
+
+
+def save_user_state_db(conn: sqlite3.Connection, user_id: int, user_state: UserState):
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO user_states (user_id, state, cookie, target_id, timeout) VALUES (?, ?, ?, ?, ?)",
+        (user_id, user_state.state, user_state.cookie, user_state.target_id, user_state.timeout),
+    )
+    conn.commit()
+
+
+def load_user_state_db(
+    conn: sqlite3.Connection, user_id: int
+) -> Optional[UserState]:
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT state, cookie, target_id, timeout FROM user_states WHERE user_id = ?",
+        (user_id,),
+    )
+    result = cursor.fetchone()
+    if result:
+        state, cookie, target_id, timeout = result
+        return UserState(
+            state=state, cookie=cookie, target_id=target_id, timeout=timeout
+        )
+    return None
+
+
+# User States Dictionary
+user_states: Dict[int, UserState] = {}
+
+
+def encrypt_cookie(cookie: str) -> str:
+    try:
+        return fernet.encrypt(cookie.encode()).decode()
+    except Exception as e:
+        logger.error(f"Error during cookie encryption: {e}")
+        raise FacebookApiException(f"Cookie encryption failed: {e}") from e
+
+
+def decrypt_cookie(encrypted_cookie: str) -> str:
+    try:
+        return fernet.decrypt(encrypted_cookie.encode()).decode()
+    except Exception as e:
+        logger.error(f"Error during cookie decryption: {e}")
+        raise FacebookApiException(f"Cookie decryption failed: {e}") from e
+
+
+class FacebookApiVIP:
+    def __init__(self, cookie: str):
+        self.cookie: str = cookie
+        try:
+            self.user_id: str = self._extract_user_id(cookie)
+        except ValueError as e:
+            raise InvalidCookieError("Failed to extract user ID from the cookie") from e
+        self.headers: dict = self._generate_headers(cookie)
+        self.fb_dtsg: Optional[str] = None
+        self.jazoest: Optional[str] = None
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    def _extract_user_id(self, cookie: str) -> str:
+        try:
+            return cookie.split("c_user=")[1].split(";")[0]
+        except IndexError:
+            logger.error("Cannot get user_id from cookie: c_user not found in cookie")
+            raise ValueError("Invalid cookie format")
+
+    def _generate_headers(self, cookie: str) -> dict:
+        return {
+            "authority": "mbasic.facebook.com",
+            "cache-control": "max-age=0",
+            "sec-ch-ua": '"Google Chrome";v="93", " Not;A Brand";v="99", "Chromium";v="93"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "upgrade-insecure-requests": "1",
+            "origin": "https://mbasic.facebook.com",
+            "content-type": "application/x-www-form-urlencoded",
+            "user-agent": "Mozilla/5.0 (Windows NT 6.3; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36",
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-user": "?1",
+            "sec-fetch-dest": "document",
+            "referer": "https://mbasic.facebook.com/",
+            "accept-language": "en-US,en;q=0.9",
+            "cookie": cookie,
+        }
+
+    async def create_session(self) -> None:
+        self.session = aiohttp.ClientSession(headers=self.headers)
+
+    async def close_session(self) -> None:
+        if self.session:
+            await self.session.close()
+
+    async def get_thongtin(self) -> Tuple[str, str]:
+        if self.fb_dtsg and self.jazoest:
+            logger.info("Using cached data.")
+            return self.fb_dtsg, self.jazoest
+
+        try:
+            async with self.session.get(
+                "https://mbasic.facebook.com/profile.php", timeout=10
+            ) as response:
+                home = await response.text()
+                if not home:
+                    raise UserInfoRetrievalError("Empty response from Facebook")
+                self.fb_dtsg = re.search(r'name="fb_dtsg" value="(.*?)"', home).group(
+                    1
+                )
+                self.jazoest = re.search(r'name="jazoest" value="(.*?)"', home).group(
+                    1
+                )
+                ten = re.search(r"<title>(.*?)</title>", home).group(1)
+                logger.info(f"Facebook name: {ten}, ID: {self.user_id}")
+                return ten, self.user_id
+        except AttributeError as e:
+            logger.error(
+                f"Unable to get user information: Required information not found in response: {e}"
+            )
+            raise UserInfoRetrievalError(
+                "Required information not found in response"
+            ) from e
+        except Exception as e:
+            logger.error(f"Error during get_thongtin: {e}")
+            raise UserInfoRetrievalError(
+                f"An error occurred during get_thongtin: {e}"
+            ) from e
+
+    async def report_user(self, target_user_id: str, timeout: int) -> None:
+        if not self.fb_dtsg or not self.jazoest:
+            logger.info("Data not loaded yet. Reloading...")
+            try:
+                await self.get_thongtin()
+            except UserInfoRetrievalError as e:
+                raise ReportError(f"Failed to retrieve user information: {e}") from e
+
+        reasons = {
+            "spam": "Spam",
+            "violation": "Vi phạm quy tắc",
+            "hate_speech": "Ngôn ngữ thù địch",
+            "pornography": "Nội dung khiêu dâm",
+            "harassment": "Ngược đãi",
+            "impersonation": "Giả mạo",
+            "personal_attack": "Tấn công cá nhân",
+        }
+        for reason_code, reason_description in reasons.items():
+            data = {
+                "av": self.user_id,
+                "__user": self.user_id,
+                "fb_dtsg": self.fb_dtsg,
+                "jazoest": self.jazoest,
+                "target_user_id": target_user_id,
+                "report_type": "user",
+                "reason": reason_code,
+            }
+            try:
+                async with self.session.post(
+                    "https://www.facebook.com/report/user", data=data, timeout=timeout
+                ) as response:
+                    if response.status == 200:
+                        logger.info(
+                            f"Successfully reported user {target_user_id} with reason '{reason_description}'."
+                        )
+                    else:
+                        logger.error(
+                            f"Report failed with reason '{reason_description}'. Response status code: {response.status}"
+                        )
+                        raise ReportError(f"Report failed: status code {response.status}")
+            except aiohttp.ClientError as e:
+                logger.error(
+                    f"Error executing report with reason '{reason_description}': {e}"
+                )
+                raise ReportError(
+                    f"Network error while reporting: {e}, with reason: {reason_description}"
+                ) from e
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error while reporting with reason '{reason_description}': {e}"
+                )
+                raise ReportError(
+                    f"An unexpected error occurred: {e}, with reason {reason_description}"
+                ) from e
+
+
+async def handle_report_request(
+    user_id: int, state_data: UserState, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    try:
+        if not state_data.cookie:
+            raise InvalidInputError(
+                "Cookie not found in state, something wrong with flow."
+            )
+
+        decrypted_cookie = decrypt_cookie(state_data.cookie)
+        api = FacebookApiVIP(decrypted_cookie)
+
+        async with api.session or aiohttp.ClientSession():
+            await api.create_session()
+            await api.get_thongtin()
+            await api.report_user(state_data.target_id, state_data.timeout)
+        await context.bot.send_message(
+            chat_id=user_id, text="Report process completed."
+        )
+
+    except InvalidInputError as e:
+        logger.error(f"Error during report for user {user_id}: Invalid input: {e}")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"Invalid input: {e}. Please make sure the process is correctly done with correct information.",
+        )
+    except FacebookApiException as e:
+        logger.error(f"Error during report for user {user_id}: Facebook API error: {e}")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"An error occurred during the Facebook API call: {e} Please try again.",
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during report for user {user_id}: {e}")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"An unexpected error occurred: {e}. Please try again.",
+        )
+    finally:
+        state_data.state = "idle"
+        conn = create_connection()
+        save_user_state_db(conn, user_id, state_data)
+        conn.close()
+
+# decorator for command validation for private chat
+def private_chat_only(func: Callable):
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_chat.type != "private":
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="This command can only be used in private chats."
+            )
+            return
+        return await func(update, context)
+    return wrapper
+
+@private_chat_only
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Hello! I'm ready to report Facebook users. Use /cookie to set your cookie and then /report to start.",
+    )
+
+@private_chat_only
+async def cookie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    user_states.setdefault(user_id, UserState()).state = "waiting_for_cookie"
+    conn = create_connection()
+    save_user_state_db(conn, user_id, user_states.get(user_id))
+    conn.close()
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Please send your Facebook cookie. It will be encrypted and stored temporarily.",
+    )
+
+@private_chat_only
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    state_data = user_states.get(user_id)
+
+    if not state_data or not state_data.cookie:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Please set your Facebook cookie first using /cookie.",
+        )
+        return
+
+    state_data.state = "waiting_for_target_id"
+    conn = create_connection()
+    save_user_state_db(conn, user_id, state_data)
+    conn.close()
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Please enter the ID of the person you want to report.",
+    )
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    message_text = update.message.text
+    state_data = user_states.get(user_id)
+    conn = create_connection()
+
+    if not state_data:
+        state_data = load_user_state_db(conn, user_id)
+        if state_data:
+            user_states[user_id] = state_data
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Please use /start to begin.",
+            )
+            conn.close()
+            return
+
+    try:
+        if state_data.state == "waiting_for_cookie":
+            encrypted_cookie = encrypt_cookie(message_text)
+            state_data.cookie = encrypted_cookie
+            state_data.state = "idle"
+            save_user_state_db(conn, user_id, state_data)
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Your cookie has been received and encrypted. Use /report to proceed.",
+            )
+        elif state_data.state == "waiting_for_target_id":
+            state_data.target_id = message_text
+            state_data.state = "waiting_for_timeout"
+            save_user_state_db(conn, user_id, state_data)
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Please enter the timeout for the report request (in seconds)",
+            )
+        elif state_data.state == "waiting_for_timeout":
+            validated_input = UserInput(
+                target_id=state_data.target_id, timeout=message_text
+            )
+            state_data.timeout = validated_input.timeout
+            state_data.state = "processing_report"
+            save_user_state_db(conn, user_id, state_data)
+            asyncio.create_task(handle_report_request(user_id, state_data, context))
+    except ValidationError as e:
+        logger.error(f"Validation error for user {user_id}: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text=f"Validation Error: {e}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error while processing message for user {user_id}: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"An unexpected error occurred, please try again.",
+        )
+    finally:
+        conn.close()
+
+
+async def shutdown(app: Application) -> None:
+    logger.info("Shutting down bot gracefully...")
+    await app.stop()
+    logger.info("Bot stopped successfully.")
+
+
+async def setup_application(token: str) -> Application:
+    conn = create_connection()
+    conn.close()  # close for now since it might not be used immediately.
+    application = ApplicationBuilder().token(token).build()
+
+    start_handler = CommandHandler("start", start_command)
+    cookie_handler = CommandHandler("cookie", cookie_command)
+    report_handler = CommandHandler("report", report_command)
+    message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
+
+    application.add_handler(start_handler)
+    application.add_handler(cookie_handler)
+    application.add_handler(report_handler)
+    application.add_handler(message_handler)
+    return application
+
+
+def run_application(application: Application):
+    loop = asyncio.get_event_loop()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(
+            sig, lambda: asyncio.create_task(shutdown(application))
+        )
+
+    try:
+        loop.run_until_complete(application.run_polling())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if not loop.is_closed():
+            loop.run_until_complete(application.stop())
+            loop.close()
+
+def main() -> None:
+    try:
+        application = asyncio.run(setup_application(TELEGRAM_TOKEN))
+        run_application(application)
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.error(f"Failed to run bot: {e}")
+
+
+if __name__ == "__main__":
+    main()
