@@ -4,8 +4,8 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 import requests
 
 # Lấy API Key từ biến môi trường
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-YEUMONEY_TOKEN = os.getenv("YEUMONEY_TOKEN")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+YEUMONEY_API_KEY = os.getenv("YEUMONEY_API_KEY")
 
 # URL API Yeumoney
 YEUMONEY_API_URL = "https://yeumoney.com/api/v1/"
@@ -39,25 +39,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def thongke(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lấy thông tin thống kê Yeumoney"""
     try:
-        response = requests.get(f"{YEUMONEY_API_URL}user", headers={"Authorization": YEUMONEY_TOKEN})
+        response = requests.get(f"{YEUMONEY_API_URL}user", headers={"Authorization": YEUMONEY_API_KEY})
+        
+        # Kiểm tra lỗi từ API
+        if response.status_code != 200:
+            raise ValueError(f"API trả về lỗi: {response.status_code}")
+
         data = response.json()
 
-        if response.status_code == 200:
-            stats = (
-                "📊 Thống kê tài khoản Yeumoney\n\n"
-                f"👤 Tên tài khoản: {data['data']['name']}\n"
-                f"💰 Số dư: {data['data']['balance']} VNĐ\n"
-                f"🔗 Số link rút gọn: {data['data']['links_count']}\n"
-                f"📈 Thu nhập hôm nay: {data['data']['today_earning']} VNĐ\n"
-                f"📊 Thu nhập tháng này: {data['data']['month_earning']} VNĐ\n"
-                f"💸 Tổng thu nhập: {data['data']['total_earning']} VNĐ"
-            )
-            await update.callback_query.edit_message_text(stats)
-        else:
-            error_message = data.get("message", "Không thể lấy thống kê. Vui lòng kiểm tra API Key!")
-            await update.callback_query.edit_message_text(f"❌ {error_message}")
+        stats = (
+            "📊 Thống kê tài khoản Yeumoney\n\n"
+            f"👤 Tên tài khoản: {data['data']['name']}\n"
+            f"💰 Số dư: {data['data']['balance']} VNĐ\n"
+            f"🔗 Số link rút gọn: {data['data']['links_count']}\n"
+            f"📈 Thu nhập hôm nay: {data['data']['today_earning']} VNĐ\n"
+            f"📊 Thu nhập tháng này: {data['data']['month_earning']} VNĐ\n"
+            f"💸 Tổng thu nhập: {data['data']['total_earning']} VNĐ"
+        )
+        await update.callback_query.edit_message_text(stats)
+
+    except ValueError as e:
+        await update.callback_query.edit_message_text(f"❌ Lỗi API: {e}")
     except Exception as e:
-        await update.callback_query.edit_message_text(f"❌ Lỗi: {e}")
+        await update.callback_query.edit_message_text(f"❌ Lỗi không xác định: {e}")
 
 async def rutgon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rút gọn link bằng Yeumoney"""
@@ -71,30 +75,31 @@ async def rutgon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         response = requests.post(
             f"{YEUMONEY_API_URL}shorten",
-            headers={"Authorization": YEUMONEY_TOKEN},
+            headers={"Authorization": YEUMONEY_API_KEY},
             data={"url": long_url}
         )
+
+        if response.status_code != 200:
+            raise ValueError(f"API trả về lỗi: {response.status_code}")
+
         data = response.json()
+        short_url = data['data']['shortenedUrl']
+        shortened_links.append(short_url)  # Lưu link vào bộ nhớ
 
-        if response.status_code == 200:
-            short_url = data['data']['shortenedUrl']
-            shortened_links.append(short_url)  # Lưu link vào bộ nhớ
+        # Nút bấm sao chép
+        buttons = [
+            [InlineKeyboardButton("🔗 Sao chép link", url=short_url)]
+        ]
+        keyboard = InlineKeyboardMarkup(buttons)
 
-            # Nút bấm sao chép
-            buttons = [
-                [InlineKeyboardButton("🔗 Sao chép link", url=short_url)]
-            ]
-            keyboard = InlineKeyboardMarkup(buttons)
-
-            await update.message.reply_text(
-                f"✅ Link rút gọn thành công:\n{short_url}",
-                reply_markup=keyboard
-            )
-        else:
-            error_message = data.get("message", "Không thể rút gọn link. Vui lòng kiểm tra link hoặc API Key!")
-            await update.message.reply_text(f"❌ {error_message}")
+        await update.message.reply_text(
+            f"✅ Link rút gọn thành công:\n{short_url}",
+            reply_markup=keyboard
+        )
+    except ValueError as e:
+        await update.message.reply_text(f"❌ Lỗi API: {e}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi: {e}")
+        await update.message.reply_text(f"❌ Lỗi không xác định: {e}")
 
 async def listlinks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Hiển thị danh sách link đã rút gọn"""
@@ -103,7 +108,12 @@ async def listlinks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     links_list = "\n".join([f"{idx + 1}. {link}" for idx, link in enumerate(shortened_links[-10:])])
-    await update.message.reply_text(f"📋 Danh sách link đã rút gọn gần đây:\n\n{links_list}")
+    await update.message.reply_text(
+        f"📋 Danh sách link đã rút gọn gần đây:\n\n{links_list}",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🔗 Sao chép link cuối cùng", url=shortened_links[-1])]]
+        )
+    )
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Xử lý các nút bấm"""
@@ -124,16 +134,13 @@ async def trogiup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1️⃣ /thongke - Hiển thị thống kê tài khoản Yeumoney.\n"
         "2️⃣ /rutgon [URL] - Rút gọn link để kiếm tiền từ Yeumoney.\n"
         "3️⃣ /listlinks - Xem danh sách link đã rút gọn gần đây.\n\n"
-        "💡 Lưu ý:\n"
-        "- Đảm bảo API Key của bạn hợp lệ.\n"
-        "- Link nhập vào phải đầy đủ, bao gồm https:// hoặc http://.\n\n"
         "📞 Hỗ trợ: Truy cập Yeumoney để được hỗ trợ thêm."
     )
     await update.message.reply_text(help_text)
 
 def main():
     # Khởi tạo ứng dụng
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
 
     # Thêm các lệnh vào bot
     application.add_handler(CommandHandler("start", start))
