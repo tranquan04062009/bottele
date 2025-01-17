@@ -5,7 +5,7 @@ from telegram import Update, Bot
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from user_agent import generate_user_agent
 
-# Cấu hình logging để theo dõi lỗi và thông tin
+# Cấu hình logging để theo dõilỗi và thông tin
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
