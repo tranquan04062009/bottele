@@ -1,3 +1,4 @@
+import os
 from telethon import TelegramClient, events
 import requests
 import json
@@ -6,11 +7,18 @@ from user_agent import generate_user_agent
 # Cập nhật thông tin API của bạn
 api_id = '22656641' 
 api_hash = '8bb9b539dd910e0b033c6637b9788e90'
-phone = '0376841471'
+session_name = 'Trần Quân MBC'
 
-# Tạo client Telegram
-client = TelegramClient('session_name', api_id, api_hash)
+  phone_or_token = os.getenv("TELEGRAM_BOT_TOKEN")
 
+  if not phone_or_token:
+      raise ValueError("Biến môi trường TELEGRAM_BOT_TOKEN chưa được thiết lập!")
+
+  client = TelegramClient(session_name, api_id, api_hash)
+
+async def main():
+      await client.start(phone=phone_or_token)
+    
 # URL API để gửi yêu cầu
 url = "http://pass-gpt.nowtechai.com/api/v1/pass"
 
