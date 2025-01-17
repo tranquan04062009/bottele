@@ -15,7 +15,7 @@ print(f"TELEGRAM_TOKEN: {phone_or_token}")
 if not phone_or_token:
       raise ValueError("Biến môi trường TELEGRAM_BOT_TOKEN chưa được thiết lập!")
 
-  client = TelegramClient(session_name, api_id, api_hash)
+client = TelegramClient(session_name, api_id, api_hash)
 
 async def main():
       await client.start(phone=phone_or_token)
