@@ -106,7 +106,7 @@ def main():
 
     # Đăng ký các handlers
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(filters.TEXT & ~filters.Command, handle_message))
+    dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     dp.add_error_handler(error)
 
     # Bắt đầu bot
