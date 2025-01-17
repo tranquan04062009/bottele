@@ -1,5 +1,3 @@
-import os
-system.os('pip install telethon')
 from telethon import TelegramClient, events
 import requests
 import json
