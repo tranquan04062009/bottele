@@ -2,7 +2,7 @@ import logging
 import json
 import requests
 from telegram import Update, Bot
-from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler
 from telegram.ext import filters
 from user_agent import generate_user_agent
 
