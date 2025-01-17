@@ -12,7 +12,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Thay thế bằng token bot của bạn
-TOKEN = 'TOKEN_BOT_CỦA_BẠN'  # <-- Nhập token bot của bạn vào đây
+TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- Nhập token bot của bạn vào đây
 
 # URL API để gửi yêu cầu
 url = "http://pass-gpt.nowtechai.com/api/v1/pass"
@@ -106,7 +106,7 @@ def main():
 
     # Đăng ký các handlers
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    dp.add_handler(MessageHandler(filters.TEXT & ~Filters.command, handle_message))
     dp.add_error_handler(error)
 
     # Bắt đầu bot
