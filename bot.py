@@ -18,12 +18,15 @@ TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- Nhập token bot
 url = "http://pass-gpt.nowtechai.com/api/v1/pass"
 
 
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: CallbackContext):
     """Hàm xử lý lệnh /start."""
     user_name = update.effective_user.first_name
-    update.message.reply_text(f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn cho tôi để bắt đầu.")
+    await update.message.reply_text(
+        f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn cho tôi để bắt đầu."
+    )
 
-def handle_message(update: Update, context: CallbackContext):
+# Hàm xử lý tin nhắn từ người dùng
+async def handle_message(update: Update, context: CallbackContext):
     """Hàm xử lý tin nhắn từ người dùng."""
     message = update.message.text
     user_name = update.effective_user.first_name
@@ -101,19 +104,17 @@ def error(update: Update, context: CallbackContext):
 
 def main():
     """Khởi tạo và chạy bot."""
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
+    # Tạo bot với Application
+    application = Application.builder().token(TOKEN).build()
 
     # Đăng ký các handlers
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    dp.add_error_handler(error)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_error_handler(error)
 
-    # Bắt đầu bot
-    updater.start_polling()
+    # Chạy bot
     logger.info("Bot đang chạy...")
-    updater.idle()
-
-
+    application.run_polling()
+    
 if __name__ == '__main__':
     main()
