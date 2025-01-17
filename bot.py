@@ -18,7 +18,7 @@ if not phone_or_token:
 client = TelegramClient(session_name, api_id, api_hash)
 
 async def main():
-      await client.start(phone=phone_or_token)
+    await client.start(phone=phone_or_token)
     
 # URL API để gửi yêu cầu
 url = "http://pass-gpt.nowtechai.com/api/v1/pass"
