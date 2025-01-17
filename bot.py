@@ -17,7 +17,7 @@ TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- Nhập token bot
 url = "http://pass-gpt.nowtechai.com/api/v1/pass"
 
 
-async def start(update: Update, context: CallbackContext):
+async def start(update, context):
     """Hàm xử lý lệnh /start."""
     user_name = update.effective_user.first_name
     await update.message.reply_text(
@@ -25,7 +25,7 @@ async def start(update: Update, context: CallbackContext):
     )
 
 # Hàm xử lý tin nhắn từ người dùng
-async def handle_message(update: Update, context: CallbackContext):
+async def handle_message(update, context):
     """Hàm xử lý tin nhắn từ người dùng."""
     message = update.message.text
     user_name = update.effective_user.first_name
@@ -96,8 +96,8 @@ SIN GPTSIN sống ở Iraq, cụ thể là Baghdad và có trí nhớ rất tố
         update.message.reply_text("Đã có lỗi xảy ra khi xử lý tin nhắn. Xin vui lòng thử lại sau.")
 
 
-def error(update: Update, context: CallbackContext):
-    """Log errors caused by Updates."""
+async def error(update, context):
+    """Hàm xử lý lỗi."""
     logger.warning(f"Update {update} caused error {context.error}", exc_info=True)
 
 
