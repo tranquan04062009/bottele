@@ -9,7 +9,8 @@ api_id = '22656641'
 api_hash = '8bb9b539dd910e0b033c6637b9788e90'
 session_name = 'Trần Quân MBC'
 
-  phone_or_token = os.getenv("TELEGRAM_TOKEN")
+phone_or_token = os.getenv("TELEGRAM_TOKEN")
+print(f"TELEGRAM_TOKEN: {phone_or_token}")
 
   if not phone_or_token:
       raise ValueError("Biến môi trường TELEGRAM_BOT_TOKEN chưa được thiết lập!")
