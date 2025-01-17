@@ -12,7 +12,7 @@ session_name = 'Trần Quân MBC'
 phone_or_token = os.getenv("TELEGRAM_TOKEN")
 print(f"TELEGRAM_TOKEN: {phone_or_token}")
 
-  if not phone_or_token:
+if not phone_or_token:
       raise ValueError("Biến môi trường TELEGRAM_BOT_TOKEN chưa được thiết lập!")
 
   client = TelegramClient(session_name, api_id, api_hash)
