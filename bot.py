@@ -120,7 +120,6 @@ async def error(update: Update, context: CallbackContext):
 
 
 def main():
-    """Initializes and runs the bot."""
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
