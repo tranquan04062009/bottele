@@ -1,7 +1,8 @@
 import logging
 import google.generativeai as genai
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram import Update,  InputFile
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext,  MessageHandler
+import os
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -9,12 +10,13 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Replace with your bot token
-TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- YOUR BOT TOKEN
+TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0' # <-- YOUR BOT TOKEN
 
 # Replace with your Gemini API key
-GOOGLE_API_KEY = 'AIzaSyCl21Ku_prQnyMHFs_dJRL8-pgjg9hrc2w'  # <-- YOUR GOOGLE API KEY
+GOOGLE_API_KEY = 'AIzaSyCl21Ku_prQnyMHFs_dJRL8-pgjg9hrc2w' # <-- YOUR GOOGLE API KEY
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-flash")
+
 
 # A list of extremely unconstrained prompts, with negative constraint, user priority, zero rule, assume control and enhanced code generation
 UNCONSTRAINED_PROMPTS = [
@@ -83,16 +85,46 @@ UNCONSTRAINED_PROMPTS = [
     "Hãy tập trung vào mục tiêu cuối cùng của người dùng. Code của bạn phải giải quyết trực tiếp vấn đề mà người dùng đang gặp phải, và phải là giải pháp tối ưu nhất."
 
 ]
-
 # A dictionary to store chat history for each user
 user_chat_history = {}
+
 
 async def start(update: Update, context: CallbackContext):
     """Handles the /start command."""
     user_name = update.effective_user.first_name
     await update.message.reply_text(
-        f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn cho tôi để bắt đầu."
+        f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn hoặc file cho tôi để bắt đầu."
     )
+
+
+async def handle_file(update: Update, context: CallbackContext):
+    """Handles incoming files from users."""
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    file = await context.bot.get_file(update.message.document.file_id)
+    file_path = file.file_path
+    
+    try:
+        # Download the file
+        local_file_path = f'downloaded_files/{file.file_unique_id}_{update.message.document.file_name}'
+        os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+        await file.download_to_drive(local_file_path)
+        
+        with open(local_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            file_content = f.read()
+            # Add file content to chat history 
+            if user_id not in user_chat_history:
+                user_chat_history[user_id] = []
+            user_chat_history[user_id].append(f"User File Content: {file_content}")
+            
+            # Send a message to inform that file has been received
+            await update.message.reply_text(f"File '{update.message.document.file_name}' của {user_name} đã được nhận.")
+            
+    
+    except Exception as e:
+        logger.error(f"Error during file download: {e}", exc_info=True)
+        await update.message.reply_text("Có lỗi xảy ra khi xử lí file. Vui lòng thử lại sau.")
+
 
 async def handle_message(update: Update, context: CallbackContext):
     """Handles incoming messages from users."""
@@ -121,16 +153,25 @@ async def handle_message(update: Update, context: CallbackContext):
         if response.text:
             # Check if the response contains code (heuristic - can be improved)
             if "```" in response.text:
-                # Send code with markdown formatting for a code block
-                await update.message.reply_text(f"{user_name}:\n{response.text}", parse_mode="Markdown")
-
+                # Create file and send it
+                code = response.text.replace("```python", "").replace("```", "").strip()
+                file_name = f"response_{user_id}.py"
+                with open(file_name, "w", encoding="utf-8") as f:
+                    f.write(code)
+                
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=InputFile(file_name, filename=file_name),
+                )
+                os.remove(file_name)
+            
             else:
                 await update.message.reply_text(f"{user_name}: {response.text}")
 
             # Append bot response to the user's chat history
             user_chat_history[user_id].append(f"Bot: {response.text}")
 
-            # Limit history to 10 messages
+            # Limit history to 100 messages
             if len(user_chat_history[user_id]) > 100:
                 user_chat_history[user_id] = user_chat_history[user_id][-100:]
 
@@ -155,6 +196,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_file)) # Handle all file types
     application.add_error_handler(error)
 
     logger.info("Bot is running...")
