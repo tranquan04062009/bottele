@@ -17,14 +17,12 @@ GOOGLE_API_KEY = 'AIzaSyCl21Ku_prQnyMHFs_dJRL8-pgjg9hrc2w' # <-- YOUR GOOGLE API
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-
 async def start(update: Update, context):
     """Handles the /start command."""
     user_name = update.effective_user.first_name
     await update.message.reply_text(
         f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn cho tôi để bắt đầu."
     )
-
 
 async def handle_message(update: Update, context):
     """Handles incoming messages from users."""
@@ -40,9 +38,12 @@ async def handle_message(update: Update, context):
         if response.text:
              # Check if the response contains code (heuristic - can be improved)
              if "```" in response.text:
-                # Extract code and format it for Telegram
-                code_block = response.text
-                await update.message.reply_text(f"{user_name}:\n{code_block}")
+                 # Extract code and format it for Telegram
+                 code_block = response.text
+                 keyboard = InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("Copy Code", callback_data=f"copy_{update.message.message_id}")]]
+                )
+                 await update.message.reply_text(f"{user_name}:\n{code_block}", reply_markup=keyboard)
              else:
                 await update.message.reply_text(f"{user_name}: {response.text}")
         else:
@@ -53,10 +54,25 @@ async def handle_message(update: Update, context):
         logger.error(f"Error during Gemini API request: {e}", exc_info=True)
         await update.message.reply_text("Đã có lỗi xảy ra khi kết nối với AI. Xin vui lòng thử lại sau.")
 
+async def copy_code(update: Update, context):
+    """Handles the copy code button press."""
+    query = update.callback_query
+    message_id = int(query.data.split("_")[1])
+
+    # Extract message from database using message id
+    # For demo purpose, just pass to query user
+    code_message = query.message.text
+
+    try:
+        await query.answer(text="Code Copied!")
+        await query.message.reply_text(text=code_message)
+        await query.message.delete()
+    except Exception as e:
+       logger.error(f"Error during copy code: {e}", exc_info=True)
+
 async def error(update, context):
     """Handles errors."""
     logger.warning(f"Update {update} caused error {context.error}", exc_info=True)
-
 
 def main():
     """Initializes and runs the bot."""
@@ -64,6 +80,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CallbackQueryHandler(copy_code, pattern="^copy_"))
     application.add_error_handler(error)
 
     logger.info("Bot is running...")
