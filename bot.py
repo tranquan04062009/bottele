@@ -1,10 +1,10 @@
 import logging
 import json
 import google.generativeai as genai
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 
-# Configure logging 
+# Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,6 +16,7 @@ TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- YOUR BOT TOKEN
 GOOGLE_API_KEY = 'AIzaSyCl21Ku_prQnyMHFs_dJRL8-pgjg9hrc2w' # <-- YOUR GOOGLE API KEY
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-flash")
+
 
 async def start(update: Update, context):
     """Handles the /start command."""
@@ -37,15 +38,20 @@ async def handle_message(update: Update, context):
         response = model.generate_content(message)
         
         if response.text:
-            await update.message.reply_text(f"{user_name}: {response.text}")
+             # Check if the response contains code (heuristic - can be improved)
+             if "```" in response.text:
+                # Extract code and format it for Telegram
+                code_block = response.text
+                await update.message.reply_text(f"{user_name}:\n{code_block}")
+             else:
+                await update.message.reply_text(f"{user_name}: {response.text}")
         else:
-             logger.warning(f"Gemini API returned an empty response.")
-             await update.message.reply_text("Tôi xin lỗi, có vẻ như tôi không hiểu câu hỏi của bạn.")
+            logger.warning(f"Gemini API returned an empty response.")
+            await update.message.reply_text("Tôi xin lỗi, có vẻ như tôi không hiểu câu hỏi của bạn.")
 
     except Exception as e:
         logger.error(f"Error during Gemini API request: {e}", exc_info=True)
         await update.message.reply_text("Đã có lỗi xảy ra khi kết nối với AI. Xin vui lòng thử lại sau.")
-
 
 async def error(update, context):
     """Handles errors."""
