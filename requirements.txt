@@ -2,3 +2,4 @@ python-telegram-bot
 requests
 user-agent
 google-generativeai
+openai
