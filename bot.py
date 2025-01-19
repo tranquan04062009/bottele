@@ -4,6 +4,7 @@ from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
 import io
+import re
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Get the bot token and API key from environment variables
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
+GOOGLE_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY')
 
 
 # Check if the environment variables are set
@@ -20,7 +21,7 @@ if not TOKEN:
     logger.error("TELEGRAM_BOT_TOKEN environment variable not set.")
     exit(1)
 if not GOOGLE_API_KEY:
-    logger.error("GOOGLE_API_KEY environment variable not set.")
+    logger.error("GOOGLE_GEMINI_API_KEY environment variable not set.")
     exit(1)
 
 genai.configure(api_key=GOOGLE_API_KEY)
@@ -109,44 +110,34 @@ async def handle_message(update: Update, context: CallbackContext):
         )
 
         if response.text:
-            # Check if the response contains code (heuristic - can be improved)
-            if "```" in response.text:
-                code_blocks = response.text.split("```")[1::2] # Extract code blocks
-
+            # Improved code block extraction using regex
+            code_blocks = re.findall(r"```(.*?)```", response.text, re.DOTALL)
+            
+            if code_blocks:
                 # Create and send code files for each block
                 for i, code in enumerate(code_blocks):
-                   
                     code = code.strip()
-                    
                     file_name = create_code_file(code, user_id)
-
+                    
                     with open(file_name, "rb") as f:
                         await update.message.reply_document(
                              document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
                                 caption=f"Code được tạo cho {user_name}. Khối code {i+1}."
-                             )
-                   
+                            )
                     os.remove(file_name) # Clean up the temp file
 
-                 # Send remaining text that isn't code
-                remaining_text = ""
-                parts = response.text.split("```")
-                for i, part in enumerate(parts):
-                     if i % 2 == 0:
-                         remaining_text += part
-
-                if remaining_text.strip():
+                # Send remaining text that isn't code
+                remaining_text = re.sub(r"```(.*?)```", "", response.text, flags=re.DOTALL).strip()
+                if remaining_text:
                     await update.message.reply_text(f"{user_name}: {remaining_text}")
-
-
             else:
-                 await update.message.reply_text(f"{user_name}: {response.text}")
+               await update.message.reply_text(f"{user_name}: {response.text}")
 
 
-             # Append bot response to the user's chat history
+            # Append bot response to the user's chat history
             user_chat_history[user_id].append(f"Bot: {response.text}")
 
-             # Limit history to 100 messages
+            # Limit history to 100 messages
             if len(user_chat_history[user_id]) > 100:
                 user_chat_history[user_id] = user_chat_history[user_id][-100:]
 
