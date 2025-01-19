@@ -124,7 +124,7 @@ async def handle_message(update: Update, context: CallbackContext):
 
     try:
         # URL for the custom API endpoint
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=GOOGLE_API_KEY
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=GOOGLE_API_KEY"
 
         # Create the payload for bypassing safety constraints
         payload = json.dumps({
