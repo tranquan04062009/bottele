@@ -22,7 +22,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-1.5-flash")
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
-openai_model = "gpt-4-turbo-preview"  # Or any other model
+openai_model = "gpt-4o"  # Or any other model
 
 # Prompt for the bot
 ENHANCED_CODING_PROMPT = """
