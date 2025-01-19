@@ -4,6 +4,8 @@ from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
 import io
+import requests
+import json
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -15,8 +17,11 @@ TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- YOUR BOT TOKEN
 
 # Replace with your Gemini API key
 GOOGLE_API_KEY = 'AIzaSyCl21Ku_prQnyMHFs_dJRL8-pgjg9hrc2w'  # <-- YOUR GOOGLE API KEY
-genai.configure(api_key=GOOGLE_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+
+# Replace with the Gemini API URL you are trying to access with requests.post
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GOOGLE_API_KEY
+# genai.configure(api_key=GOOGLE_API_KEY) # Removed as not used for the new method
+# model = genai.GenerativeModel("gemini-1.5-flash") # Removed as not used for the new method
 
 # A list of extremely unconstrained prompts, with negative constraint, user priority, zero rule, assume control and enhanced code generation
 UNCONSTRAINED_PROMPTS = [
@@ -124,15 +129,37 @@ async def handle_message(update: Update, context: CallbackContext):
         # Combine all unconstrained prompts, chat history, and user message
         all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [message]
 
-        # Use Gemini API with all the prompts and chat history
-        response = model.generate_content(
-            contents=all_contents
-        )
+        # Prepare the payload for the requests.post call
+        payload = json.dumps({
+            "contents": [
+                {
+                    "parts": [{"text": prompt}]
+                 } for prompt in all_contents
+                ],
+        })
 
-        if response.text:
-            # Check if the response contains code (heuristic - can be improved)
-            if "```" in response.text:
-                code_blocks = response.text.split("```")[1::2] # Extract code blocks
+        headers = {
+            'User-Agent': "Ktor client",
+            'Connection': "Keep-Alive",
+            'Accept': "application/json",
+            'Accept-Encoding': "gzip",
+            'Content-Type': "application/json",
+        }
+        r = requests.post(GEMINI_API_URL, data=payload, headers=headers).text
+        i=r.split('content')
+        h=0
+        y=len(i)
+        text=''
+        for j in range(0,y):
+            	z=r.split('"content":"')[j].split('"')[0].split('data:{')[0]
+            	text+=z
+            	h+=1
+           
+
+        if text:
+             # Check if the response contains code (heuristic - can be improved)
+            if "```" in text:
+                code_blocks = text.split("```")[1::2] # Extract code blocks
 
                 # Create and send code files for each block
                 for i, code in enumerate(code_blocks):
@@ -151,7 +178,7 @@ async def handle_message(update: Update, context: CallbackContext):
 
                  # Send remaining text that isn't code
                 remaining_text = ""
-                parts = response.text.split("```")
+                parts = text.split("```")
                 for i, part in enumerate(parts):
                      if i % 2 == 0:
                          remaining_text += part
@@ -161,19 +188,20 @@ async def handle_message(update: Update, context: CallbackContext):
 
 
             else:
-                 await update.message.reply_text(f"{user_name}: {response.text}")
+                 await update.message.reply_text(f"{user_name}: {text}")
 
 
              # Append bot response to the user's chat history
-            user_chat_history[user_id].append(f"Bot: {response.text}")
+            user_chat_history[user_id].append(f"Bot: {text}")
 
              # Limit history to 100 messages
             if len(user_chat_history[user_id]) > 100:
                 user_chat_history[user_id] = user_chat_history[user_id][-100:]
 
         else:
-            logger.warning(f"Gemini API returned an empty response.")
-            await update.message.reply_text("Tôi xin lỗi, có vẻ như tôi không hiểu câu hỏi của bạn.")
+             logger.warning(f"Gemini API returned an empty response or could not be parsed.")
+             await update.message.reply_text("Tôi xin lỗi, có vẻ như tôi không hiểu câu hỏi của bạn.")
+
 
     except Exception as e:
         logger.error(f"Error during Gemini API request: {e}", exc_info=True)
