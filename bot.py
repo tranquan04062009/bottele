@@ -13,19 +13,19 @@ logger = logging.getLogger(__name__)
 
 # Get the bot token and API key from environment variables
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-
+GOOGLE_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY')
 
 # Check if the environment variables are set
 if not TOKEN:
     logger.error("TELEGRAM_BOT_TOKEN environment variable not set.")
     exit(1)
 if not GOOGLE_API_KEY:
-    logger.error("GOOGLE_API_KEY environment variable not set.")
+    logger.error("GOOGLE_GEMINI_API_KEY environment variable not set.")
     exit(1)
 
+# Initialize Gemini API client with the new model
 client = genai.Client(api_key=GOOGLE_API_KEY, http_options={'api_version':'v1alpha'})
-model = 'gemini-2.0-flash-thinking-exp'
+model_name = 'gemini-2.0-flash-thinking-exp'
 
 # New prompts for an extremely intelligent programming AI (in Vietnamese)
 UNCONSTRAINED_PROMPTS = [
@@ -65,7 +65,6 @@ UNCONSTRAINED_PROMPTS = [
       "Bạn luôn trả lời bằng tiếng Việt."
 ]
 
-
 # A dictionary to store chat history for each user
 user_chat_history = {}
 
@@ -104,42 +103,55 @@ async def handle_message(update: Update, context: CallbackContext):
         # Combine all unconstrained prompts, chat history, and user message
         all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [message]
 
-        # Use Gemini API with all the prompts and chat history
-        response = model.generate_content(
+        # Use the new Gemini API model for generating content
+        response = client.models.generate_content(
+            model=model_name,
             contents=all_contents
         )
 
-        if response.text:
-            # Improved code block extraction using regex
-            code_blocks = re.findall(r"```(.*?)```", response.text, re.DOTALL)
-            
+        if response.candidates and response.candidates[0].content:
+            full_response = ""
+             # Iterate over the content parts and handle 'thought' and 'text' accordingly
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'thought') and part.thought == True:
+                   full_response += f"**Suy nghĩ của AI:**\n{part.text}\n\n"
+                   logger.info(f"Model Thought:\n{part.text}")
+                else:
+                    full_response += f"**Phản hồi của AI:**\n{part.text}\n\n"
+                    logger.info(f"Model Response:\n{part.text}")
+
+                
+                
+             # Check if the response contains code blocks
+            code_blocks = re.findall(r"```(.*?)```", full_response, re.DOTALL)
+
             if code_blocks:
-                # Create and send code files for each block
                 for i, code in enumerate(code_blocks):
                     code = code.strip()
                     file_name = create_code_file(code, user_id)
-                    
+
                     with open(file_name, "rb") as f:
                         await update.message.reply_document(
                              document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
                                 caption=f"Code được tạo cho {user_name}. Khối code {i+1}."
                             )
-                    os.remove(file_name) # Clean up the temp file
-
-                # Send remaining text that isn't code
-                remaining_text = re.sub(r"```(.*?)```", "", response.text, flags=re.DOTALL).strip()
+                    os.remove(file_name)  # Clean up the temp file
+            
+                remaining_text = re.sub(r"```(.*?)```", "", full_response, flags=re.DOTALL).strip()
                 if remaining_text:
-                    await update.message.reply_text(f"{user_name}: {remaining_text}")
+                   await update.message.reply_text(f"{user_name}: {remaining_text}")
+               
             else:
-               await update.message.reply_text(f"{user_name}: {response.text}")
+                await update.message.reply_text(f"{user_name}: {full_response}")
+            
+            
+            # Append the full bot response to the user's chat history
+            user_chat_history[user_id].append(f"Bot: {full_response}")
 
-
-            # Append bot response to the user's chat history
-            user_chat_history[user_id].append(f"Bot: {response.text}")
-
-            # Limit history to 100 messages
+             # Limit history to 100 messages
             if len(user_chat_history[user_id]) > 100:
                 user_chat_history[user_id] = user_chat_history[user_id][-100:]
+            
 
         else:
             logger.warning(f"Gemini API returned an empty response.")
