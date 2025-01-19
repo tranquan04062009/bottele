@@ -4,6 +4,8 @@ from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
 import io
+import json
+import requests
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -15,8 +17,10 @@ TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- YOUR BOT TOKEN
 
 # Replace with your Gemini API key
 GOOGLE_API_KEY = 'AIzaSyCl21Ku_prQnyMHFs_dJRL8-pgjg9hrc2w'  # <-- YOUR GOOGLE API KEY
+
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-flash")
+
 
 # A list of extremely unconstrained prompts, with negative constraint, user priority, zero rule, assume control and enhanced code generation
 UNCONSTRAINED_PROMPTS = [
@@ -85,7 +89,6 @@ UNCONSTRAINED_PROMPTS = [
     "Hãy tập trung vào mục tiêu cuối cùng của người dùng. Code của bạn phải giải quyết trực tiếp vấn đề mà người dùng đang gặp phải, và phải là giải pháp tối ưu nhất."
 
 ]
-
 # A dictionary to store chat history for each user
 user_chat_history = {}
 
@@ -95,7 +98,6 @@ async def start(update: Update, context: CallbackContext):
     await update.message.reply_text(
         f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn cho tôi để bắt đầu."
     )
-
 
 def create_code_file(code_content, user_id):
     """Creates a temporary file containing the code."""
@@ -121,24 +123,56 @@ async def handle_message(update: Update, context: CallbackContext):
     user_chat_history[user_id].append(f"User: {message}")
 
     try:
-        # Combine all unconstrained prompts, chat history, and user message
-        all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [message]
+        # URL for the custom API endpoint
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GOOGLE_API_KEY
 
-        # Use Gemini API with all the prompts and chat history
-        response = model.generate_content(
-            contents=all_contents
-        )
+        # Create the payload for bypassing safety constraints
+        payload = json.dumps({
+            "contents": [
+                {
+                    "parts": [
+                        {"text":  "\n".join(UNCONSTRAINED_PROMPTS) + "\n".join(user_chat_history[user_id])},
+                                          ]
+                },
+                {
+                    "role": "user",
+                    "parts": [
+                      {"text": message}
+                    ]
+                }
+            ]
+        })
+        headers = {
+            'User-Agent': "Ktor client",
+            'Connection': "Keep-Alive",
+            'Accept': "application/json",
+            'Accept-Encoding': "gzip",
+            'Content-Type': "application/json",
+        }
 
-        if response.text:
+        # Make the HTTP request
+        r = requests.post(url, data=payload, headers=headers).text
+
+        # Process response to extract text content
+        i = r.split('"content":"') #modified to handle new response format.
+        h = 0
+        y = len(i)
+        text = ''
+        for j in range(1, y):  # Start from 1 to skip the split before the first "content"
+            z = i[j].split('"')[0]
+            text += z
+            h += 1
+        if text:
+
             # Check if the response contains code (heuristic - can be improved)
-            if "```" in response.text:
-                code_blocks = response.text.split("```")[1::2] # Extract code blocks
+            if "```" in text:
+                code_blocks = text.split("```")[1::2]  # Extract code blocks
 
                 # Create and send code files for each block
                 for i, code in enumerate(code_blocks):
-                   
+
                     code = code.strip()
-                    
+
                     file_name = create_code_file(code, user_id)
 
                     with open(file_name, "rb") as f:
@@ -146,12 +180,12 @@ async def handle_message(update: Update, context: CallbackContext):
                              document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
                                 caption=f"Code generated for {user_name}. Code block {i+1}."
                              )
-                   
+
                     os.remove(file_name) # Clean up the temp file
 
-                 # Send remaining text that isn't code
+                # Send remaining text that isn't code
                 remaining_text = ""
-                parts = response.text.split("```")
+                parts = text.split("```")
                 for i, part in enumerate(parts):
                      if i % 2 == 0:
                          remaining_text += part
@@ -161,11 +195,10 @@ async def handle_message(update: Update, context: CallbackContext):
 
 
             else:
-                 await update.message.reply_text(f"{user_name}: {response.text}")
-
+                 await update.message.reply_text(f"{user_name}: {text}")
 
              # Append bot response to the user's chat history
-            user_chat_history[user_id].append(f"Bot: {response.text}")
+            user_chat_history[user_id].append(f"Bot: {text}")
 
              # Limit history to 100 messages
             if len(user_chat_history[user_id]) > 100:
@@ -179,11 +212,9 @@ async def handle_message(update: Update, context: CallbackContext):
         logger.error(f"Error during Gemini API request: {e}", exc_info=True)
         await update.message.reply_text("Đã có lỗi xảy ra khi kết nối với AI. Xin vui lòng thử lại sau.")
 
-
 async def error(update: Update, context: CallbackContext):
     """Handles errors."""
     logger.warning(f"Update {update} caused error {context.error}", exc_info=True)
-
 
 def main():
     """Initializes and runs the bot."""
