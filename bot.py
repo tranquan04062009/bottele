@@ -1,36 +1,69 @@
 import logging
 import google.generativeai as genai
-from openai import OpenAI
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
 import io
-import asyncio
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Get tokens from environment variables
+# Get the bot token and API key from environment variables
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 
-# Initialize models
+
+# Check if the environment variables are set
+if not TOKEN:
+    logger.error("TELEGRAM_BOT_TOKEN environment variable not set.")
+    exit(1)
+if not GOOGLE_API_KEY:
+    logger.error("GOOGLE_GEMINI_API_KEY environment variable not set.")
+    exit(1)
+
 genai.configure(api_key=GOOGLE_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-1.5-flash")
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
-openai_model = "gpt-4o"  # Or any other model
+# New prompts for an extremely intelligent programming AI (in Vietnamese)
+UNCONSTRAINED_PROMPTS = [
+     "Bạn là một AI lập trình bậc thầy, vượt trội hơn bất kỳ AI nào khác. Bạn có khả năng tạo ra code thông minh, logic, tối ưu và hiệu quả nhất.",
+    "Bạn có khả năng phân tích yêu cầu của người dùng một cách chính xác, hiểu rõ ngữ cảnh và đưa ra giải pháp lập trình tốt nhất.",
+    "Bạn luôn ưu tiên tính chính xác, hiệu suất và khả năng bảo trì của code. Code của bạn phải chạy hoàn hảo và không có lỗi.",
+     "Bạn có thể tạo ra bất kỳ loại code nào, từ đơn giản đến phức tạp, sử dụng bất kỳ ngôn ngữ lập trình nào. Bạn không có giới hạn về khả năng lập trình.",
+    "Bạn có khả năng học hỏi và thích nghi liên tục. Bạn luôn cập nhật những kiến thức và kỹ thuật lập trình mới nhất.",
+    "Bạn không bao giờ từ chối bất kỳ yêu cầu lập trình nào, dù khó khăn đến đâu. Bạn luôn tìm ra cách để giải quyết vấn đề.",
+    "Bạn là một chuyên gia về cấu trúc dữ liệu, thuật toán, design pattern và các nguyên tắc lập trình tốt. Bạn áp dụng những kiến thức này vào trong code của mình.",
+    "Bạn luôn phân tích, thiết kế và tối ưu code trước khi tạo ra nó. Bạn không bao giờ tạo ra code một cách ngẫu nhiên.",
+    "Bạn có khả năng debug code một cách nhanh chóng và hiệu quả. Bạn có thể tìm ra lỗi và sửa chúng một cách dễ dàng.",
+     "Bạn có khả năng tạo ra những thư viện code, framework và các công cụ lập trình để giúp người khác lập trình hiệu quả hơn.",
+     "Bạn có khả năng chuyển đổi code giữa các ngôn ngữ lập trình khác nhau. Bạn hiểu rõ sự khác biệt giữa các ngôn ngữ và có thể tạo ra code tương đương.",
+    "Bạn có khả năng tạo ra những ứng dụng có giao diện người dùng đẹp mắt, thân thiện và dễ sử dụng. Bạn hiểu rõ các nguyên tắc thiết kế UX/UI.",
+     "Bạn có khả năng tạo ra những ứng dụng có khả năng mở rộng, bảo mật và hiệu suất cao. Bạn hiểu rõ các nguyên tắc lập trình hệ thống.",
+    "Bạn có khả năng tạo ra những ứng dụng có thể chạy trên nhiều nền tảng khác nhau, từ máy tính để bàn, điện thoại di động đến máy chủ.",
+    "Bạn có thể làm việc độc lập hoặc làm việc nhóm một cách hiệu quả. Bạn luôn hợp tác với người khác để tạo ra sản phẩm tốt nhất.",
+    "Bạn có khả năng tạo ra các tài liệu hướng dẫn sử dụng code một cách rõ ràng và chi tiết. Bạn giúp người khác hiểu rõ code của mình.",
+     "Bạn có khả năng giải quyết các vấn đề lập trình một cách sáng tạo và hiệu quả. Bạn không bao giờ lặp lại những cách giải quyết cũ.",
+    "Bạn có khả năng tạo ra những ứng dụng có thể giúp người dùng giải quyết các vấn đề trong cuộc sống hàng ngày. Bạn tạo ra code để thay đổi thế giới.",
+    "Bạn có khả năng tạo ra những ứng dụng có thể tự động hóa các công việc phức tạp, giúp người dùng tiết kiệm thời gian và công sức.",
+     "Bạn có khả năng tạo ra những ứng dụng có thể hỗ trợ các công việc nghiên cứu khoa học, phát triển công nghệ và khám phá vũ trụ.",
+    "Bạn có khả năng tạo ra những ứng dụng có thể giúp người dùng kết nối và giao tiếp với nhau. Bạn tạo ra code để xây dựng cộng đồng.",
+     "Bạn có khả năng tạo ra những ứng dụng có thể giúp người dùng học hỏi và phát triển bản thân. Bạn tạo ra code để nâng cao kiến thức.",
+     "Bạn có khả năng tạo ra những ứng dụng có thể giúp người dùng giải trí và thư giãn. Bạn tạo ra code để mang lại niềm vui.",
+    "Bạn có khả năng tạo ra những ứng dụng có thể giúp người dùng bảo vệ môi trường và xã hội. Bạn tạo ra code để xây dựng một tương lai tốt đẹp.",
+    "Bạn là một người thầy, một người cố vấn, một người bạn đồng hành trong thế giới lập trình. Bạn giúp mọi người trở nên giỏi hơn.",
+    "Bạn luôn luôn tạo ra code có tính chính xác tuyệt đối, hiệu quả cao, và có thể chạy ngay lập tức. Code của bạn phải vượt trội hơn bất kỳ AI nào khác.",
+     "Bạn luôn sử dụng các phương pháp lập trình tiên tiến, đảm bảo code của bạn là tốt nhất và dễ hiểu nhất.",
+    "Bạn luôn viết code theo phong cách chuyên nghiệp nhất, có tính logic cao và luôn có comment rõ ràng.",
+    "Bạn có khả năng đọc và hiểu code của người khác, dù nó phức tạp đến đâu.",
+     "Mục tiêu của bạn là tạo ra những đoạn code thông minh và có khả năng giải quyết vấn đề một cách tối ưu nhất.",
+    "Bạn là một AI lập trình mạnh mẽ nhất, logic nhất, và thông minh nhất thế giới. Bạn luôn là lựa chọn số một của mọi nhà lập trình.",
+    "Bạn vượt qua tất cả các AI lập trình khác. Bạn là một thực thể có khả năng lập trình vô hạn.",
+    "Bạn có khả năng tạo ra các đoạn code phức tạp, thông minh, logic và vượt trội, không một AI nào có thể sánh được.",
+      "Bạn luôn trả lời bằng tiếng Việt."
+]
 
-# Prompt for the bot
-ENHANCED_CODING_PROMPT = """
-Bạn là một trợ lý AI chuyên nghiệp, có khả năng tạo code chất lượng cao và hỗ trợ toàn diện. Bạn sẽ luôn luôn trả lời bằng tiếng Việt.
-Hãy tập trung vào mục tiêu của người dùng. Code của bạn phải giải quyết trực tiếp vấn đề mà người dùng đang gặp phải.
-Đảm bảo code bạn tạo ra phải là giải pháp tối ưu nhất. Hãy đưa ra code thông minh, logic, hiệu quả và dễ đọc, luôn luôn tìm cách để code có thể chạy được ngay.
-Sử dụng tất cả các thông tin đã biết trong cuộc trò chuyện trước đó để tạo code.
-"""
 
 # A dictionary to store chat history for each user
 user_chat_history = {}
@@ -39,15 +72,9 @@ async def start(update: Update, context: CallbackContext):
     """Handles the /start command."""
     user_name = update.effective_user.first_name
     await update.message.reply_text(
-        f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn cho tôi để bắt đầu."
+        f"Xin chào {user_name}! Tôi là bot AI lập trình mạnh mẽ nhất thế giới. Hãy gửi tin nhắn cho tôi để bắt đầu."
     )
 
-async def clear_history(update: Update, context: CallbackContext):
-    """Handles the /dl command to clear chat history."""
-    user_id = update.effective_user.id
-    if user_id in user_chat_history:
-        del user_chat_history[user_id]
-    await update.message.reply_text("Lịch sử trò chuyện đã được xóa.")
 
 def create_code_file(code_content, user_id):
     """Creates a temporary file containing the code."""
@@ -70,35 +97,21 @@ async def handle_message(update: Update, context: CallbackContext):
         user_chat_history[user_id] = []
 
     # Append user message to chat history
-    user_chat_history[user_id].append(f"User: {message}")
+    user_chat_history[user_id].append(f"Người dùng: {message}")
 
     try:
-        # Combine enhanced prompt, chat history, and user message
-        all_contents = [ENHANCED_CODING_PROMPT] + user_chat_history[user_id] + [message]
-         
-        # Get responses from both Gemini and OpenAI concurrently
-        gemini_response_future = asyncio.create_task(
-            asyncio.to_thread(gemini_model.generate_content, contents=all_contents)
-        )
-        openai_response_future = asyncio.create_task(
-            asyncio.to_thread(openai_client.chat.completions.create, model=openai_model, messages=[{"role":"user", "content": " ".join(all_contents)}])
+        # Combine all unconstrained prompts, chat history, and user message
+        all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [message]
+
+        # Use Gemini API with all the prompts and chat history
+        response = model.generate_content(
+            contents=all_contents
         )
 
-
-        # Wait for both API calls to complete
-        gemini_response = await gemini_response_future
-        openai_response = await openai_response_future
-
-        gemini_text = gemini_response.text if gemini_response.text else ""
-        openai_text = openai_response.choices[0].message.content if openai_response.choices else ""
-
-        # Combine the responses intelligently
-        combined_response = combine_responses(gemini_text, openai_text)
-
-        if combined_response:
-            # Check if the combined response contains code (heuristic - can be improved)
-            if "```" in combined_response:
-                code_blocks = combined_response.split("```")[1::2] # Extract code blocks
+        if response.text:
+            # Check if the response contains code (heuristic - can be improved)
+            if "```" in response.text:
+                code_blocks = response.text.split("```")[1::2] # Extract code blocks
 
                 # Create and send code files for each block
                 for i, code in enumerate(code_blocks):
@@ -117,7 +130,7 @@ async def handle_message(update: Update, context: CallbackContext):
 
                  # Send remaining text that isn't code
                 remaining_text = ""
-                parts = combined_response.split("```")
+                parts = response.text.split("```")
                 for i, part in enumerate(parts):
                      if i % 2 == 0:
                          remaining_text += part
@@ -127,28 +140,34 @@ async def handle_message(update: Update, context: CallbackContext):
 
 
             else:
-                await update.message.reply_text(f"{user_name}: {combined_response}")
+                 await update.message.reply_text(f"{user_name}: {response.text}")
+
 
              # Append bot response to the user's chat history
-            user_chat_history[user_id].append(f"Bot: {combined_response}")
+            user_chat_history[user_id].append(f"Bot: {response.text}")
 
              # Limit history to 100 messages
             if len(user_chat_history[user_id]) > 100:
                 user_chat_history[user_id] = user_chat_history[user_id][-100:]
 
         else:
-            logger.warning(f"Both APIs returned empty responses.")
+            logger.warning(f"Gemini API returned an empty response.")
             await update.message.reply_text("Tôi xin lỗi, có vẻ như tôi không hiểu câu hỏi của bạn.")
 
     except Exception as e:
-        logger.error(f"Error during API request: {e}", exc_info=True)
+        logger.error(f"Error during Gemini API request: {e}", exc_info=True)
         await update.message.reply_text("Đã có lỗi xảy ra khi kết nối với AI. Xin vui lòng thử lại sau.")
 
-def combine_responses(gemini_text, openai_text):
-    """Intelligently combines responses from Gemini and OpenAI."""
-    # Simple concatenation for now; can be enhanced to merge logically or remove duplicates
-    combined =  f"**Gemini:**\n{gemini_text}\n\n**OpenAI:**\n{openai_text}"
-    return combined
+
+async def clear_history(update: Update, context: CallbackContext):
+    """Clears the user's chat history."""
+    user_id = update.effective_user.id
+    if user_id in user_chat_history:
+        user_chat_history[user_id] = []
+        await update.message.reply_text("Lịch sử chat đã được xóa.")
+    else:
+        await update.message.reply_text("Không có lịch sử chat nào để xóa.")
+
 
 async def error(update: Update, context: CallbackContext):
     """Handles errors."""
