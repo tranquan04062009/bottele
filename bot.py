@@ -20,7 +20,7 @@ if not TOKEN:
     logger.error("TELEGRAM_BOT_TOKEN environment variable not set.")
     exit(1)
 if not GOOGLE_API_KEY:
-    logger.error("GOOGLE_GEMINI_API_KEY environment variable not set.")
+    logger.error("GOOGLE_API_KEY environment variable not set.")
     exit(1)
 
 genai.configure(api_key=GOOGLE_API_KEY)
