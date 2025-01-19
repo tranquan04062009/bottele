@@ -23,9 +23,11 @@ if not GOOGLE_API_KEY:
     logger.error("GOOGLE_API_KEY environment variable not set.")
     exit(1)
 
-# Initialize Gemini API client with the new model
-client = genai.Client(api_key=GOOGLE_API_KEY, http_options={'api_version':'v1alpha'})
-model_name = 'gemini-2.0-flash-thinking-exp'
+# Configure Gemini API (using the correct method without Client)
+genai.configure(api_key=GOOGLE_API_KEY)
+model = genai.GenerativeModel(model_name="gemini-2.0-flash-thinking-exp")
+
+
 
 # New prompts for an extremely intelligent programming AI (in Vietnamese)
 UNCONSTRAINED_PROMPTS = [
@@ -64,6 +66,7 @@ UNCONSTRAINED_PROMPTS = [
     "Bạn có khả năng tạo ra các đoạn code phức tạp, thông minh, logic và vượt trội, không một AI nào có thể sánh được.",
       "Bạn luôn trả lời bằng tiếng Việt."
 ]
+
 
 # A dictionary to store chat history for each user
 user_chat_history = {}
@@ -104,15 +107,15 @@ async def handle_message(update: Update, context: CallbackContext):
         all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [message]
 
         # Use the new Gemini API model for generating content
-        response = client.models.generate_content(
-            model=model_name,
+        response = model.generate_content(
             contents=all_contents
         )
 
-        if response.candidates and response.candidates[0].content:
+        if response.text:
             full_response = ""
-             # Iterate over the content parts and handle 'thought' and 'text' accordingly
-            for part in response.candidates[0].content.parts:
+
+            # Iterate over the content parts and handle 'thought' and 'text' accordingly
+            for part in response.parts:
                 if hasattr(part, 'thought') and part.thought == True:
                    full_response += f"**Suy nghĩ của AI:**\n{part.text}\n\n"
                    logger.info(f"Model Thought:\n{part.text}")
@@ -120,9 +123,8 @@ async def handle_message(update: Update, context: CallbackContext):
                     full_response += f"**Phản hồi của AI:**\n{part.text}\n\n"
                     logger.info(f"Model Response:\n{part.text}")
 
-                
-                
-             # Check if the response contains code blocks
+            
+            # Check if the response contains code blocks
             code_blocks = re.findall(r"```(.*?)```", full_response, re.DOTALL)
 
             if code_blocks:
@@ -140,18 +142,19 @@ async def handle_message(update: Update, context: CallbackContext):
                 remaining_text = re.sub(r"```(.*?)```", "", full_response, flags=re.DOTALL).strip()
                 if remaining_text:
                    await update.message.reply_text(f"{user_name}: {remaining_text}")
-               
+
             else:
-                await update.message.reply_text(f"{user_name}: {full_response}")
+                 await update.message.reply_text(f"{user_name}: {full_response}")
             
             
-            # Append the full bot response to the user's chat history
+             # Append the full bot response to the user's chat history
             user_chat_history[user_id].append(f"Bot: {full_response}")
 
-             # Limit history to 100 messages
+            # Limit history to 100 messages
             if len(user_chat_history[user_id]) > 100:
                 user_chat_history[user_id] = user_chat_history[user_id][-100:]
-            
+
+
 
         else:
             logger.warning(f"Gemini API returned an empty response.")
