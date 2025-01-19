@@ -13,14 +13,14 @@ logger = logging.getLogger(__name__)
 
 # Get the bot token and API key from environment variables
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-GOOGLE_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY')
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
 
 # Check if the environment variables are set
 if not TOKEN:
     logger.error("TELEGRAM_BOT_TOKEN environment variable not set.")
     exit(1)
 if not GOOGLE_API_KEY:
-    logger.error("GOOGLE_GEMINI_API_KEY environment variable not set.")
+    logger.error("GOOGLE_API_KEY environment variable not set.")
     exit(1)
 
 # Initialize Gemini API client with the new model
