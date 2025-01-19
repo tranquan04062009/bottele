@@ -22,7 +22,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-1.5-flash")
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
-openai_model = "gpt-4o"  # Or any other model
+openai_model = "gpt-4-turbo-preview"  # Or any other model
 
 # Prompt for the bot
 ENHANCED_CODING_PROMPT = """
@@ -48,7 +48,6 @@ async def clear_history(update: Update, context: CallbackContext):
     if user_id in user_chat_history:
         del user_chat_history[user_id]
     await update.message.reply_text("Lịch sử trò chuyện đã được xóa.")
-
 
 def create_code_file(code_content, user_id):
     """Creates a temporary file containing the code."""
@@ -76,39 +75,49 @@ async def handle_message(update: Update, context: CallbackContext):
     try:
         # Combine enhanced prompt, chat history, and user message
         all_contents = [ENHANCED_CODING_PROMPT] + user_chat_history[user_id] + [message]
+         
+        # Get responses from both Gemini and OpenAI concurrently
+        gemini_response_future = asyncio.create_task(
+            asyncio.to_thread(gemini_model.generate_content, contents=all_contents)
+        )
+        openai_response_future = asyncio.create_task(
+            asyncio.to_thread(openai_client.chat.completions.create, model=openai_model, messages=[{"role":"user", "content": " ".join(all_contents)}])
+        )
 
-        # Run both APIs concurrently
-        gemini_task = asyncio.create_task(get_gemini_response(all_contents))
-        openai_task = asyncio.create_task(get_openai_response(all_contents))
 
-        gemini_response, openai_response = await asyncio.gather(gemini_task, openai_task)
-        
-         # Combine or choose the best result (this is where you need to get creative)
-        final_response_text = await combine_responses(gemini_response, openai_response, user_name)
+        # Wait for both API calls to complete
+        gemini_response = await gemini_response_future
+        openai_response = await openai_response_future
 
-        if final_response_text:
-            # Check if the response contains code (heuristic - can be improved)
-            if "```" in final_response_text:
-                code_blocks = final_response_text.split("```")[1::2] # Extract code blocks
+        gemini_text = gemini_response.text if gemini_response.text else ""
+        openai_text = openai_response.choices[0].message.content if openai_response.choices else ""
+
+        # Combine the responses intelligently
+        combined_response = combine_responses(gemini_text, openai_text)
+
+        if combined_response:
+            # Check if the combined response contains code (heuristic - can be improved)
+            if "```" in combined_response:
+                code_blocks = combined_response.split("```")[1::2] # Extract code blocks
 
                 # Create and send code files for each block
                 for i, code in enumerate(code_blocks):
-
+                   
                     code = code.strip()
-
+                    
                     file_name = create_code_file(code, user_id)
 
                     with open(file_name, "rb") as f:
                         await update.message.reply_document(
-                            document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
-                            caption=f"Code được tạo cho {user_name}. Khối code {i+1}."
-                         )
-
+                             document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
+                                caption=f"Code được tạo cho {user_name}. Khối code {i+1}."
+                             )
+                   
                     os.remove(file_name) # Clean up the temp file
 
                  # Send remaining text that isn't code
                 remaining_text = ""
-                parts = final_response_text.split("```")
+                parts = combined_response.split("```")
                 for i, part in enumerate(parts):
                      if i % 2 == 0:
                          remaining_text += part
@@ -116,58 +125,30 @@ async def handle_message(update: Update, context: CallbackContext):
                 if remaining_text.strip():
                     await update.message.reply_text(f"{user_name}: {remaining_text}")
 
+
             else:
-                await update.message.reply_text(f"{user_name}: {final_response_text}")
+                await update.message.reply_text(f"{user_name}: {combined_response}")
 
-            # Append bot response to the user's chat history
-            user_chat_history[user_id].append(f"Bot: {final_response_text}")
+             # Append bot response to the user's chat history
+            user_chat_history[user_id].append(f"Bot: {combined_response}")
 
-            # Limit history to 100 messages
+             # Limit history to 100 messages
             if len(user_chat_history[user_id]) > 100:
                 user_chat_history[user_id] = user_chat_history[user_id][-100:]
 
         else:
             logger.warning(f"Both APIs returned empty responses.")
-            await update.message.reply_text("Tôi xin lỗi, có vẻ như cả hai hệ thống AI đều không hiểu câu hỏi của bạn.")
+            await update.message.reply_text("Tôi xin lỗi, có vẻ như tôi không hiểu câu hỏi của bạn.")
 
     except Exception as e:
         logger.error(f"Error during API request: {e}", exc_info=True)
         await update.message.reply_text("Đã có lỗi xảy ra khi kết nối với AI. Xin vui lòng thử lại sau.")
 
-
-async def get_gemini_response(contents):
-    """Helper function to get Gemini response."""
-    try:
-      response = gemini_model.generate_content(contents=contents)
-      return response.text
-    except Exception as e:
-        logger.error(f"Error during Gemini API request: {e}", exc_info=True)
-        return ""
-
-async def get_openai_response(contents):
-    """Helper function to get OpenAI response."""
-    try:
-        response = openai_client.chat.completions.create(
-              model=openai_model,
-              messages=[{"role":"user", "content": " ".join(contents)}],
-            )
-        return response.choices[0].message.content
-    except Exception as e:
-       logger.error(f"Error during OpenAI API request: {e}", exc_info=True)
-       return ""
-
-async def combine_responses(gemini_response, openai_response, user_name):
-  """Combines responses from both APIs. This is where your clever logic goes."""
-    if gemini_response and openai_response:
-      # Placeholder: Combine the responses (you can use smarter methods here)
-        return f"Gemini:\n{gemini_response}\n\nOpenAI:\n{openai_response}"
-    elif gemini_response:
-        return f"{user_name}:\n{gemini_response}"
-    elif openai_response:
-       return f"{user_name}:\n{openai_response}"
-    else:
-       return ""
-
+def combine_responses(gemini_text, openai_text):
+    """Intelligently combines responses from Gemini and OpenAI."""
+    # Simple concatenation for now; can be enhanced to merge logically or remove duplicates
+    combined =  f"**Gemini:**\n{gemini_text}\n\n**OpenAI:**\n{openai_text}"
+    return combined
 
 async def error(update: Update, context: CallbackContext):
     """Handles errors."""
