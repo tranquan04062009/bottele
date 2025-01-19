@@ -24,8 +24,8 @@ if not GOOGLE_API_KEY:
     logger.error("GOOGLE_API_KEY environment variable not set.")
     exit(1)
 
-genai.configure(api_key=GOOGLE_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+client = genai.Client(api_key=GOOGLE_API_KEY, http_options={'api_version':'v1alpha'})
+model = 'gemini-2.0-flash-thinking-exp'
 
 # New prompts for an extremely intelligent programming AI (in Vietnamese)
 UNCONSTRAINED_PROMPTS = [
