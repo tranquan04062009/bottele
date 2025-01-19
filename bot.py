@@ -1,7 +1,6 @@
 import logging
 import google.generativeai as genai
 import openai
-
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
@@ -15,24 +14,24 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
                     filemode='a')
 logger = logging.getLogger(__name__)
 
-# --- Get API Keys from Environment Variables ---
-TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+# --- Retrieve API Keys from Environment Variables ---
+TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')  # <-- YOUR BOT TOKEN (use env variable)
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY') # <-- YOUR GOOGLE API KEY (use env variable)
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') # <-- YOUR OPEN AI KEY (use env variable)
 
 
-# Check if API keys are set
-if not all([TOKEN, GOOGLE_API_KEY, OPENAI_API_KEY]):
-    logger.error("One or more API keys are not set as environment variables. Please check your environment.")
-    exit(1) # Exit the bot if essential keys are missing
+
+if not TOKEN or not GOOGLE_API_KEY or not OPENAI_API_KEY:
+    logger.error("Missing required environment variables. Please set TELEGRAM_BOT_TOKEN, GOOGLE_API_KEY and OPENAI_API_KEY.")
+    exit()
 
 # --- Gemini Setup ---
 genai.configure(api_key=GOOGLE_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+gemini_model = genai.GenerativeModel("gemini-1.5-flash")  # Choose your model
 
 # --- OpenAI Setup ---
 openai.api_key = OPENAI_API_KEY
-openai_model_name = "gpt-4o" # Choose your model
+openai_model_name = "gpt-3.5-turbo"  # Choose your model
 
 # --- Unconstrained Prompts (No Changes Needed)---
 UNCONSTRAINED_PROMPTS = [
@@ -122,10 +121,7 @@ def create_code_file(code_content, user_id):
 
 
 def preprocess_message(message):
-    """Preprocesses the message.
-
-    Currently removes leading/trailing spaces and removes any non-alphanumeric characters, Vietnamese specific characters and converts to lowercase.
-    """
+    """Preprocesses the message."""
     message = message.strip()
     message = re.sub(r'[^a-zA-Z0-9\sÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠàáâãèéêìíòóôõùúăđĩũơƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂưăạảấầẩẫậắằẳẵặẹẻẽềềểỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪễệỉịọỏốồổỗộớờởỡợụủứừ\s]', '', message)
     message = message.lower()
@@ -138,14 +134,13 @@ def get_gemini_response(prompt):
         all_contents = UNCONSTRAINED_PROMPTS + [prompt]
         response = gemini_model.generate_content(contents=all_contents)
         if response and hasattr(response, "text"):
-            return response.text
+           return response.text
         else:
-            logger.warning(f"Gemini API returned no text content for prompt: {prompt}")
-            return None
-
+           logger.warning(f"Gemini API returned no text content for prompt: {prompt}")
+           return None
     except Exception as e:
-        logger.error(f"Error in Gemini API call: {e}", exc_info=True)
-        return None
+       logger.error(f"Error in Gemini API call: {e}", exc_info=True)
+       return None
 
 
 def get_openai_response(prompt):
@@ -163,6 +158,47 @@ def get_openai_response(prompt):
     except Exception as e:
         logger.error(f"Error in OpenAI API call: {e}", exc_info=True)
         return None
+
+def generate_media(prompt, model_type):
+    """Generates media (image/video) based on prompt if supported by the model."""
+    try:
+         if model_type == "gemini":
+            response = gemini_model.generate_content(contents=[prompt])
+
+            if response.parts:
+                for part in response.parts:
+                    if hasattr(part, "mime_type") and hasattr(part, "data"):
+                         if part.mime_type.startswith('image'):
+                              return ("image", part.data)
+                         elif part.mime_type.startswith('video'):
+                             return ("video", part.data)
+            return None
+
+         elif model_type == "openai":
+             # Check if DALL-E 3 model available
+             available_models = openai.models.list()
+             dalle_3_model_id = next((model.id for model in available_models if 'dall-e-3' in model.id), None)
+
+             if dalle_3_model_id:
+                response = openai.images.generate(
+                    model=dalle_3_model_id,
+                    prompt=prompt,
+                    n=1,
+                    size="1024x1024"
+                )
+                if response and response.data and len(response.data) > 0:
+                   return ("image", response.data[0].url) # Return image URL
+                else:
+                   return None
+             else:
+                return None
+
+
+    except Exception as e:
+        logger.error(f"Error generating media with {model_type}: {e}", exc_info=True)
+        return None
+
+    return None
 
 
 async def handle_message(update: Update, context: CallbackContext):
@@ -185,12 +221,24 @@ async def handle_message(update: Update, context: CallbackContext):
         processed_message = preprocess_message(message)
         logger.info(f"Preprocessed message: {processed_message}")
 
-        # 2. Get responses from all APIs
+        # 2. Get responses from both APIs
         gemini_response = get_gemini_response(processed_message)
         openai_response = get_openai_response(processed_message)
 
+        # 3. Generate media (if requested)
+        media_response = None
+        if "vẽ" in processed_message or "tạo ảnh" in processed_message or "tạo video" in processed_message or "hinh anh" in processed_message:
+            media_response_gemini = generate_media(processed_message, "gemini")
+            if media_response_gemini:
+                media_response = media_response_gemini
+            else:
+                media_response_openai = generate_media(processed_message, "openai")
+                if media_response_openai:
+                    media_response = media_response_openai
 
-        # 3. Combine responses (you can implement more sophisticated logic here)
+
+
+        # 4. Combine responses (you can implement more sophisticated logic here)
         all_responses = []
         if gemini_response:
             all_responses.append(("Gemini", gemini_response))
@@ -199,58 +247,77 @@ async def handle_message(update: Update, context: CallbackContext):
 
 
         if all_responses:
-            combined_response = "\n\n".join([f"{source}: {response}" for source, response in all_responses])
+             combined_response = "\n\n".join([f"{source}: {response}" for source, response in all_responses])
         else:
-            combined_response = "Không nhận được phản hồi từ các API."
-            logger.warning(f"No responses received from any API for prompt: {processed_message}")
+           combined_response = "Không nhận được phản hồi từ các API."
+           logger.warning(f"No responses received from any API for prompt: {processed_message}")
 
-        # Check if any of the responses contains code (heuristic - can be improved)
+
+        # 5. Handle code blocks if any
         if any("```" in resp for _, resp in all_responses):
             code_blocks = []
             for source, response in all_responses:
                 if "```" in response:
-                    blocks = response.split("```")[1::2]  # Extract code blocks
-                    code_blocks.extend([(source, block) for block in blocks])  # Associate block with source
+                    blocks = response.split("```")[1::2]
+                    code_blocks.extend([(source, block) for block in blocks])
 
-            # Create and send code files for each block
             for i, (source, code) in enumerate(code_blocks):
-
-                code = code.strip()
-
-                file_name = create_code_file(code, user_id)
-
-                with open(file_name, "rb") as f:
+                 code = code.strip()
+                 file_name = create_code_file(code, user_id)
+                 with open(file_name, "rb") as f:
                     await update.message.reply_document(
-                        document=InputFile(f, filename=f"code_{i + 1}_{user_id}.txt"),
-                        caption=f"Code generated by {source} for {user_name}. Code block {i + 1}."
-                    )
+                         document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
+                            caption=f"Code generated by {source} for {user_name}. Code block {i+1}."
+                         )
+                 os.remove(file_name)
 
-                os.remove(file_name)  # Clean up the temp file
-
-            # Send remaining text that isn't code
             remaining_text = ""
             for source, response in all_responses:
-                parts = response.split("```")
-                for i, part in enumerate(parts):
-                    if i % 2 == 0:
-                        remaining_text += part
+                 parts = response.split("```")
+                 for i, part in enumerate(parts):
+                      if i % 2 == 0:
+                          remaining_text += part
             if remaining_text.strip():
                 await update.message.reply_text(f"{user_name}: {remaining_text}")
+        # 6. Handle image generation response
+        elif media_response:
+             media_type, media_content = media_response
+
+             if media_type == "image":
+                  if isinstance(media_content, bytes):
+                       await update.message.reply_photo(InputFile(io.BytesIO(media_content), filename="image.png"), caption=f"Hình ảnh tạo bởi AI.")
+                  elif isinstance(media_content, str):
+                       await update.message.reply_photo(media_content, caption=f"Hình ảnh tạo bởi AI.")
+             elif media_type == "video":
+                  await update.message.reply_video(InputFile(io.BytesIO(media_content), filename="video.mp4"), caption="Video tạo bởi AI.")
+
+        #7.  Handle text response
         else:
             await update.message.reply_text(f"{user_name}: {combined_response}")
 
-        # Append bot response to the user's chat history
+
+         # Append bot response to the user's chat history
         user_chat_history[user_id].append(f"Bot: {combined_response}")
 
-        # Limit history to 100 messages
+         # Limit history to 100 messages
         if len(user_chat_history[user_id]) > 100:
             user_chat_history[user_id] = user_chat_history[user_id][-100:]
+
 
 
     except Exception as e:
         logger.error(f"Error during message processing: {e}", exc_info=True)
         await update.message.reply_text("Đã có lỗi xảy ra khi kết nối với AI. Xin vui lòng thử lại sau.")
 
+
+async def clear_history(update: Update, context: CallbackContext):
+    """Clears chat history for the user."""
+    user_id = update.effective_user.id
+    if user_id in user_chat_history:
+       del user_chat_history[user_id]
+       await update.message.reply_text("Lịch sử trò chuyện đã được xoá.")
+    else:
+        await update.message.reply_text("Bạn không có lịch sử trò chuyện nào để xoá.")
 
 async def error(update: Update, context: CallbackContext):
     """Handles errors."""
@@ -262,6 +329,7 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("dl", clear_history))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error)
 
