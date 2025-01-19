@@ -5,8 +5,7 @@ from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
 import io
-import requests # For handling images
-from io import BytesIO # for reading image content
+import asyncio
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -23,23 +22,15 @@ genai.configure(api_key=GOOGLE_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-1.5-flash")
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
-openai_model = "gpt-4-turbo-preview"  # Or any other model
-openai_image_model = "dall-e-3" # Model for image generation
+openai_model = "gpt-4o"  # Or any other model
 
 # Prompt for the bot
 ENHANCED_CODING_PROMPT = """
-Bạn là một trợ lý AI chuyên nghiệp, có khả năng tạo code chất lượng cao. Bạn sẽ luôn luôn trả lời bằng tiếng Việt.
+Bạn là một trợ lý AI chuyên nghiệp, có khả năng tạo code chất lượng cao và hỗ trợ toàn diện. Bạn sẽ luôn luôn trả lời bằng tiếng Việt.
 Hãy tập trung vào mục tiêu của người dùng. Code của bạn phải giải quyết trực tiếp vấn đề mà người dùng đang gặp phải.
 Đảm bảo code bạn tạo ra phải là giải pháp tối ưu nhất. Hãy đưa ra code thông minh, logic, hiệu quả và dễ đọc, luôn luôn tìm cách để code có thể chạy được ngay.
 Sử dụng tất cả các thông tin đã biết trong cuộc trò chuyện trước đó để tạo code.
 """
-
-# Prompt for image generation
-IMAGE_GENERATION_PROMPT = """
-Bạn là một trợ lý AI chuyên về tạo ảnh. Hãy tạo một bức ảnh theo yêu cầu của người dùng và miêu tả ngắn gọn nội dung bức ảnh đó.
-Bạn sẽ luôn luôn trả lời bằng tiếng Việt.
-"""
-
 
 # A dictionary to store chat history for each user
 user_chat_history = {}
@@ -52,13 +43,12 @@ async def start(update: Update, context: CallbackContext):
     )
 
 async def clear_history(update: Update, context: CallbackContext):
-    """Handles the /dl command to delete chat history."""
+    """Handles the /dl command to clear chat history."""
     user_id = update.effective_user.id
     if user_id in user_chat_history:
         del user_chat_history[user_id]
-        await update.message.reply_text("Lịch sử chat của bạn đã được xóa.")
-    else:
-        await update.message.reply_text("Không có lịch sử chat nào để xóa.")
+    await update.message.reply_text("Lịch sử trò chuyện đã được xóa.")
+
 
 def create_code_file(code_content, user_id):
     """Creates a temporary file containing the code."""
@@ -66,6 +56,7 @@ def create_code_file(code_content, user_id):
     with open(file_name, "w", encoding="utf-8") as f:
         f.write(code_content)
     return file_name
+
 
 async def handle_message(update: Update, context: CallbackContext):
     """Handles incoming messages from users."""
@@ -85,91 +76,97 @@ async def handle_message(update: Update, context: CallbackContext):
     try:
         # Combine enhanced prompt, chat history, and user message
         all_contents = [ENHANCED_CODING_PROMPT] + user_chat_history[user_id] + [message]
-       
-        # Determine which model to use (you can implement a more complex logic here)
-        use_openai = "code" in message.lower() # Heuristic: Use OpenAI if "code" is in the message
-        use_openai_image = "ảnh" in message.lower() or "hình" in message.lower() # Use DALL-E if image word in message
 
-        if use_openai_image:
-            image_prompt_content = [IMAGE_GENERATION_PROMPT] + [message]
-            response = openai_client.images.generate(
-              model=openai_image_model,
-              prompt = " ".join(image_prompt_content),
-              n=1, # Generate one image
-              size="1024x1024"
-             )
-            
-            image_url = response.data[0].url
-            
-            # Send the image via telegram
-            response = requests.get(image_url)
-            image =  BytesIO(response.content)
-           
-            await update.message.reply_photo(photo=image, caption="Ảnh được tạo bởi AI")
+        # Run both APIs concurrently
+        gemini_task = asyncio.create_task(get_gemini_response(all_contents))
+        openai_task = asyncio.create_task(get_openai_response(all_contents))
 
-            # Append bot response to the user's chat history
-            user_chat_history[user_id].append(f"Bot: Ảnh được tạo bởi AI")
-            
-        elif use_openai:
-            response = openai_client.chat.completions.create(
-              model=openai_model,
-              messages=[{"role":"user", "content": " ".join(all_contents)}],
-              )
-            response_text = response.choices[0].message.content
-        else:    
-            # Use Gemini API with all the prompts and chat history
-            response = gemini_model.generate_content(
-                contents=all_contents
-            )
-            response_text = response.text
-
-        if use_openai or not use_openai_image: #Avoid sending duplicate text response in image case
-            if response_text:
-                # Check if the response contains code (heuristic - can be improved)
-                if "```" in response_text:
-                    code_blocks = response_text.split("```")[1::2] # Extract code blocks
-
-                    # Create and send code files for each block
-                    for i, code in enumerate(code_blocks):
-                        
-                        code = code.strip()
-                        
-                        file_name = create_code_file(code, user_id)
-
-                        with open(file_name, "rb") as f:
-                            await update.message.reply_document(
-                                document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
-                                    caption=f"Code được tạo cho {user_name}. Khối code {i+1}."
-                                )
-                        
-                        os.remove(file_name) # Clean up the temp file
-
-                    # Send remaining text that isn't code
-                    remaining_text = ""
-                    parts = response_text.split("```")
-                    for i, part in enumerate(parts):
-                        if i % 2 == 0:
-                            remaining_text += part
-
-                    if remaining_text.strip():
-                        await update.message.reply_text(f"{user_name}: {remaining_text}")
-
-
-                else:
-                    await update.message.reply_text(f"{user_name}: {response_text}")
-
-            # Append bot response to the user's chat history
-            user_chat_history[user_id].append(f"Bot: {response_text}")
-
+        gemini_response, openai_response = await asyncio.gather(gemini_task, openai_task)
         
+         # Combine or choose the best result (this is where you need to get creative)
+        final_response_text = await combine_responses(gemini_response, openai_response, user_name)
 
-        # Limit history to 100 messages
-        if len(user_chat_history[user_id]) > 100:
-            user_chat_history[user_id] = user_chat_history[user_id][-100:]
+        if final_response_text:
+            # Check if the response contains code (heuristic - can be improved)
+            if "```" in final_response_text:
+                code_blocks = final_response_text.split("```")[1::2] # Extract code blocks
+
+                # Create and send code files for each block
+                for i, code in enumerate(code_blocks):
+
+                    code = code.strip()
+
+                    file_name = create_code_file(code, user_id)
+
+                    with open(file_name, "rb") as f:
+                        await update.message.reply_document(
+                            document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
+                            caption=f"Code được tạo cho {user_name}. Khối code {i+1}."
+                         )
+
+                    os.remove(file_name) # Clean up the temp file
+
+                 # Send remaining text that isn't code
+                remaining_text = ""
+                parts = final_response_text.split("```")
+                for i, part in enumerate(parts):
+                     if i % 2 == 0:
+                         remaining_text += part
+
+                if remaining_text.strip():
+                    await update.message.reply_text(f"{user_name}: {remaining_text}")
+
+            else:
+                await update.message.reply_text(f"{user_name}: {final_response_text}")
+
+            # Append bot response to the user's chat history
+            user_chat_history[user_id].append(f"Bot: {final_response_text}")
+
+            # Limit history to 100 messages
+            if len(user_chat_history[user_id]) > 100:
+                user_chat_history[user_id] = user_chat_history[user_id][-100:]
+
+        else:
+            logger.warning(f"Both APIs returned empty responses.")
+            await update.message.reply_text("Tôi xin lỗi, có vẻ như cả hai hệ thống AI đều không hiểu câu hỏi của bạn.")
 
     except Exception as e:
         logger.error(f"Error during API request: {e}", exc_info=True)
         await update.message.reply_text("Đã có lỗi xảy ra khi kết nối với AI. Xin vui lòng thử lại sau.")
+
+
+async def get_gemini_response(contents):
+    """Helper function to get Gemini response."""
+    try:
+      response = gemini_model.generate_content(contents=contents)
+      return response.text
+    except Exception as e:
+        logger.error(f"Error during Gemini API request: {e}", exc_info=True)
+        return ""
+
+async def get_openai_response(contents):
+    """Helper function to get OpenAI response."""
+    try:
+        response = openai_client.chat.completions.create(
+              model=openai_model,
+              messages=[{"role":"user", "content": " ".join(contents)}],
+            )
+        return response.choices[0].message.content
+    except Exception as e:
+       logger.error(f"Error during OpenAI API request: {e}", exc_info=True)
+       return ""
+
+async def combine_responses(gemini_response, openai_response, user_name):
+  """Combines responses from both APIs. This is where your clever logic goes."""
+    if gemini_response and openai_response:
+      # Placeholder: Combine the responses (you can use smarter methods here)
+        return f"Gemini:\n{gemini_response}\n\nOpenAI:\n{openai_response}"
+    elif gemini_response:
+        return f"{user_name}:\n{gemini_response}"
+    elif openai_response:
+       return f"{user_name}:\n{openai_response}"
+    else:
+       return ""
 
 
 async def error(update: Update, context: CallbackContext):
@@ -182,7 +179,7 @@ def main():
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("dl", clear_history)) # Add clear history command
+    application.add_handler(CommandHandler("dl", clear_history))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error)
 
