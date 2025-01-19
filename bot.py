@@ -6,27 +6,33 @@ from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
 import io
-import re  # For regex in preprocessing
+import re
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO,
-                    filename="bot.log",  # Log to a file
-                    filemode='a') # Append to file, not overwrite
+                    filename="bot.log",
+                    filemode='a')
 logger = logging.getLogger(__name__)
 
-# Replace with your bot token
-TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- YOUR BOT TOKEN
+# --- Get API Keys from Environment Variables ---
+TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+
+
+# Check if API keys are set
+if not all([TOKEN, GOOGLE_API_KEY, OPENAI_API_KEY]):
+    logger.error("One or more API keys are not set as environment variables. Please check your environment.")
+    exit(1) # Exit the bot if essential keys are missing
 
 # --- Gemini Setup ---
-GOOGLE_API_KEY = 'AIzaSyCl21Ku_prQnyMHFs_dJRL8-pgjg9hrc2w'  # <-- YOUR GOOGLE API KEY
 genai.configure(api_key=GOOGLE_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-1.5-flash")  # Choose your model
+gemini_model = genai.GenerativeModel("gemini-1.5-flash")
 
 # --- OpenAI Setup ---
-OPENAI_API_KEY = "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"  # <-- YOUR OPEN AI KEY
 openai.api_key = OPENAI_API_KEY
-openai_model_name = "gpt-4o"  # Choose your model
+openai_model_name = "gpt-4o" # Choose your model
 
 # --- Unconstrained Prompts (No Changes Needed)---
 UNCONSTRAINED_PROMPTS = [
@@ -118,13 +124,12 @@ def create_code_file(code_content, user_id):
 def preprocess_message(message):
     """Preprocesses the message.
 
-    Removes leading/trailing spaces and any non-alphanumeric characters, Vietnamese specific characters and converts to lowercase.
+    Currently removes leading/trailing spaces and removes any non-alphanumeric characters, Vietnamese specific characters and converts to lowercase.
     """
     message = message.strip()
     message = re.sub(r'[^a-zA-Z0-9\sÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠàáâãèéêìíòóôõùúăđĩũơƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂưăạảấầẩẫậắằẳẵặẹẻẽềềểỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪễệỉịọỏốồổỗộớờởỡợụủứừ\s]', '', message)
     message = message.lower()
     return message
-
 
 
 def get_gemini_response(prompt):
@@ -133,22 +138,22 @@ def get_gemini_response(prompt):
         all_contents = UNCONSTRAINED_PROMPTS + [prompt]
         response = gemini_model.generate_content(contents=all_contents)
         if response and hasattr(response, "text"):
-             return response.text
+            return response.text
         else:
-          logger.warning(f"Gemini API returned no text content for prompt: {prompt}")
-          return None
+            logger.warning(f"Gemini API returned no text content for prompt: {prompt}")
+            return None
 
     except Exception as e:
-       logger.error(f"Error in Gemini API call: {e}", exc_info=True)
-       return None
+        logger.error(f"Error in Gemini API call: {e}", exc_info=True)
+        return None
 
 
 def get_openai_response(prompt):
     """Gets response from OpenAI API."""
     try:
         response = openai.chat.completions.create(
-             model=openai_model_name,
-             messages=[{"role": "user", "content": prompt}]
+            model=openai_model_name,
+            messages=[{"role": "user", "content": prompt}]
         )
         if response and response.choices and len(response.choices) > 0:
             return response.choices[0].message.content
@@ -158,18 +163,6 @@ def get_openai_response(prompt):
     except Exception as e:
         logger.error(f"Error in OpenAI API call: {e}", exc_info=True)
         return None
-
-
-
-def select_best_response(responses):
-    """Selects the best response based on some basic criteria."""
-    if not responses:
-        return None
-
-    # Simple selection criteria: pick the longest response first, could be enhanced in the future
-    best_response = max(responses, key=lambda item: len(item[1]))
-    return best_response
-
 
 
 async def handle_message(update: Update, context: CallbackContext):
@@ -196,58 +189,60 @@ async def handle_message(update: Update, context: CallbackContext):
         gemini_response = get_gemini_response(processed_message)
         openai_response = get_openai_response(processed_message)
 
+
         # 3. Combine responses (you can implement more sophisticated logic here)
         all_responses = []
         if gemini_response:
-           all_responses.append(("Gemini", gemini_response))
+            all_responses.append(("Gemini", gemini_response))
         if openai_response:
-           all_responses.append(("OpenAI", openai_response))
+            all_responses.append(("OpenAI", openai_response))
 
 
-
-        #4. Select the best response
-        best_response = select_best_response(all_responses)
-
-        if best_response:
-            source, response_text = best_response
-            logger.info(f"Best response selected from {source}.")
-            final_response = f"{user_name} ({source}): {response_text}"
+        if all_responses:
+            combined_response = "\n\n".join([f"{source}: {response}" for source, response in all_responses])
         else:
-            final_response = "Không nhận được phản hồi từ các API."
+            combined_response = "Không nhận được phản hồi từ các API."
             logger.warning(f"No responses received from any API for prompt: {processed_message}")
 
-          # Check if any of the responses contains code (heuristic - can be improved)
-        if best_response and "```" in best_response[1]:
-             source, response = best_response
-             code_blocks = response.split("```")[1::2] # Extract code blocks
+        # Check if any of the responses contains code (heuristic - can be improved)
+        if any("```" in resp for _, resp in all_responses):
+            code_blocks = []
+            for source, response in all_responses:
+                if "```" in response:
+                    blocks = response.split("```")[1::2]  # Extract code blocks
+                    code_blocks.extend([(source, block) for block in blocks])  # Associate block with source
 
-             # Create and send code files for each block
-             for i, code in enumerate(code_blocks):
-                   code = code.strip()
-                   file_name = create_code_file(code, user_id)
+            # Create and send code files for each block
+            for i, (source, code) in enumerate(code_blocks):
 
-                   with open(file_name, "rb") as f:
-                      await update.message.reply_document(
-                         document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
-                         caption=f"Code generated by {source} for {user_name}. Code block {i+1}."
-                      )
-                   os.remove(file_name) # Clean up the temp file
+                code = code.strip()
 
-             # Send remaining text that isn't code
-             remaining_text = ""
-             parts = response.split("```")
-             for i, part in enumerate(parts):
-                  if i % 2 == 0:
-                     remaining_text += part
-             if remaining_text.strip():
+                file_name = create_code_file(code, user_id)
+
+                with open(file_name, "rb") as f:
+                    await update.message.reply_document(
+                        document=InputFile(f, filename=f"code_{i + 1}_{user_id}.txt"),
+                        caption=f"Code generated by {source} for {user_name}. Code block {i + 1}."
+                    )
+
+                os.remove(file_name)  # Clean up the temp file
+
+            # Send remaining text that isn't code
+            remaining_text = ""
+            for source, response in all_responses:
+                parts = response.split("```")
+                for i, part in enumerate(parts):
+                    if i % 2 == 0:
+                        remaining_text += part
+            if remaining_text.strip():
                 await update.message.reply_text(f"{user_name}: {remaining_text}")
         else:
-          await update.message.reply_text(final_response)
+            await update.message.reply_text(f"{user_name}: {combined_response}")
 
-         # Append bot response to the user's chat history
-        user_chat_history[user_id].append(f"Bot: {final_response}")
+        # Append bot response to the user's chat history
+        user_chat_history[user_id].append(f"Bot: {combined_response}")
 
-         # Limit history to 100 messages
+        # Limit history to 100 messages
         if len(user_chat_history[user_id]) > 100:
             user_chat_history[user_id] = user_chat_history[user_id][-100:]
 
