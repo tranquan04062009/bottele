@@ -94,7 +94,7 @@ async def start(update: Update, context: CallbackContext):
     """Handles the /start command."""
     user_name = update.effective_user.first_name
     await update.message.reply_text(
-        f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn hoặc file cho tôi để bắt đầu."
+        f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn cho tôi để bắt đầu."
     )
 
 async def clear_history(update: Update, context: CallbackContext):
@@ -113,83 +113,6 @@ def create_code_file(code_content, user_id):
         f.write(code_content)
     return file_name
 
-async def handle_file_processing(update: Update, context: CallbackContext, action: str):
-    user_id = update.effective_user.id
-    user_name = update.effective_user.first_name
-    
-    if user_id not in user_file_data or 'file_content' not in user_file_data[user_id]:
-        await update.callback_query.answer("Không có file nào để xử lí. Vui lòng gửi file trước.", show_alert=True)
-        return
-    
-    file_content = user_file_data[user_id]['file_content']
-    
-    # Get or create user's chat history
-    if user_id not in user_chat_history:
-        user_chat_history[user_id] = []
-
-        # Append user message to chat history
-    user_chat_history[user_id].append(f"User: File uploaded - Action: {action}")
-    try:
-        # Combine all unconstrained prompts, chat history, and user message
-        all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [f"Analyze this file content: {file_content}. User requested action: {action}"]
-
-        # Use Gemini API with all the prompts and chat history
-        response = model.generate_content(
-            contents=all_contents
-        )
-        
-        if response.text:
-            # Check if the response contains code (heuristic - can be improved)
-            if "```" in response.text:
-                code_blocks = response.text.split("```")[1::2] # Extract code blocks
-
-                # Create and send code files for each block
-                for i, code in enumerate(code_blocks):
-                  
-                    code = code.strip()
-                    
-                    file_name = create_code_file(code, user_id)
-
-                    with open(file_name, "rb") as f:
-                        await update.callback_query.message.reply_document(
-                            document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
-                                caption=f"Code generated for {user_name}. Code block {i+1}."
-                            )
-                  
-                    os.remove(file_name) # Clean up the temp file
-
-                # Send remaining text that isn't code
-                remaining_text = ""
-                parts = response.text.split("```")
-                for i, part in enumerate(parts):
-                    if i % 2 == 0:
-                        remaining_text += part
-
-                if remaining_text.strip():
-                    await update.callback_query.message.reply_text(f"{user_name}: {remaining_text}")
-
-
-            else:
-                await update.callback_query.message.reply_text(f"{user_name}: {response.text}")
-
-
-              # Append bot response to the user's chat history
-            user_chat_history[user_id].append(f"Bot: {response.text}")
-
-              # Limit history to 100 messages
-            if len(user_chat_history[user_id]) > 100:
-                user_chat_history[user_id] = user_chat_history[user_id][-100:]
-
-        else:
-            logger.warning(f"Gemini API returned an empty response.")
-            await update.callback_query.message.reply_text("Tôi xin lỗi, có vẻ như tôi không hiểu yêu cầu của bạn.")
-
-    except Exception as e:
-        logger.error(f"Error during Gemini API request: {e}", exc_info=True)
-        await update.callback_query.message.reply_text("Đã có lỗi xảy ra khi kết nối với AI. Xin vui lòng thử lại sau.")
-    
-    await update.callback_query.answer()
-
 
 async def handle_message(update: Update, context: CallbackContext):
     """Handles incoming messages from users."""
@@ -200,12 +123,83 @@ async def handle_message(update: Update, context: CallbackContext):
     if update.message.text:
       message = update.message.text
       logger.info(f"Message from {user_name}: {message}")
+
+       # Check if the user has uploaded a file and is now sending a command
+      if user_id in user_file_state and user_file_state[user_id]["file_content"]:
+        file_content = user_file_state[user_id]["file_content"]
+          
+        # Add to history
+        if user_id not in user_chat_history:
+                user_chat_history[user_id] = []
+
+        user_chat_history[user_id].append(f"User (file): {file_content}")
+        user_chat_history[user_id].append(f"User (command): {message}")
+          
+        try:
+          all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [file_content, message]
+
+          # Use Gemini API with all the prompts and chat history
+          response = model.generate_content(
+              contents=all_contents
+          )
+            
+          if response.text:
+              # Check if the response contains code (heuristic - can be improved)
+              if "```" in response.text:
+                  code_blocks = response.text.split("```")[1::2] # Extract code blocks
+
+                  # Create and send code files for each block
+                  for i, code in enumerate(code_blocks):
+                    
+                      code = code.strip()
+                      
+                      file_name = create_code_file(code, user_id)
+
+                      with open(file_name, "rb") as f:
+                          await update.message.reply_document(
+                              document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
+                                  caption=f"Code generated for {user_name}. Code block {i+1}."
+                              )
+                    
+                      os.remove(file_name) # Clean up the temp file
+
+                  # Send remaining text that isn't code
+                  remaining_text = ""
+                  parts = response.text.split("```")
+                  for i, part in enumerate(parts):
+                      if i % 2 == 0:
+                          remaining_text += part
+
+                  if remaining_text.strip():
+                      await update.message.reply_text(f"{user_name}: {remaining_text}")
+
+
+              else:
+                  await update.message.reply_text(f"{user_name}: {response.text}")
+
+
+                # Append bot response to the user's chat history
+              user_chat_history[user_id].append(f"Bot: {response.text}")
+
+                # Limit history to 100 messages
+              if len(user_chat_history[user_id]) > 100:
+                  user_chat_history[user_id] = user_chat_history[user_id][-100:]
+          
+              # Clear file state after processing
+              user_file_state[user_id]["file_content"] = None
+          else:
+             logger.warning(f"Gemini API returned an empty response.")
+             await update.message.reply_text("Tôi xin lỗi, có vẻ như tôi không hiểu câu hỏi của bạn.")
+        except Exception as e:
+           logger.error(f"Error processing file and command: {e}", exc_info=True)
+           await update.message.reply_text("Có lỗi xảy ra khi xử lý file và lệnh. Xin vui lòng thử lại sau.")
+        return
     
        # Get or create user's chat history
       if user_id not in user_chat_history:
         user_chat_history[user_id] = []
 
-        # Append user message to chat history
+      # Append user message to chat history
       user_chat_history[user_id].append(f"User: {message}")
       
       try:
@@ -269,9 +263,9 @@ async def handle_message(update: Update, context: CallbackContext):
           
     # Handle files
     elif update.message.document:
-        try:
+       try:
             file = await context.bot.get_file(update.message.document.file_id)
-            temp_file = NamedTemporaryFile(delete=False) # Create a temp file
+            temp_file = NamedTemporaryFile(delete=False)  # Create a temp file
             await file.download(temp_file.name)
 
             file_content = ""
@@ -281,31 +275,25 @@ async def handle_message(update: Update, context: CallbackContext):
                     with open(temp_file.name, 'r', encoding='utf-8') as f:
                         file_content = f.read()
                 except UnicodeDecodeError:
-                    with open(temp_file.name, 'r', encoding='latin-1') as f:
+                   with open(temp_file.name, 'r', encoding='latin-1') as f:
                         file_content = f.read()
             except Exception as e:
                 logger.warning(f"Could not read file as text: {e}")
-                file_content = "File content could not be read as text."
+                await update.message.reply_text("Tôi xin lỗi, tôi không thể đọc được nội dung của file này.")
+                os.remove(temp_file.name)
+                return
             finally:
                 os.remove(temp_file.name)
 
-            # Store file content for later processing
-            user_file_data[user_id] = {'file_content': file_content}
-
-            # Prompt the user for action
-            keyboard = [
-                [InlineKeyboardButton("Summarize", callback_data='summarize'),
-                 InlineKeyboardButton("Extract Data", callback_data='extract_data')],
-                [InlineKeyboardButton("Translate", callback_data='translate'),
-                 InlineKeyboardButton("Analyze Code", callback_data='analyze_code')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text("Bạn muốn làm gì với file này?", reply_markup=reply_markup)
-
-        except Exception as e:
+           # Save file content and set state
+            user_file_state[user_id] = {
+               "file_content": file_content,
+             }
+            await update.message.reply_text("Tôi đã nhận được file của bạn. Bạn muốn tôi làm gì với nó? (ví dụ: tóm tắt, dịch, phân tích)")
+            
+       except Exception as e:
             logger.error(f"Error handling file: {e}", exc_info=True)
             await update.message.reply_text("Có lỗi xảy ra khi xử lý file. Xin vui lòng thử lại sau.")
-        
 
 async def error(update: Update, context: CallbackContext):
     """Handles errors."""
@@ -320,11 +308,6 @@ def main():
     application.add_handler(CommandHandler("dl", clear_history))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
-    application.add_handler(CallbackQueryHandler(
-        lambda update, context: handle_file_processing(update, context, update.callback_query.data)
-        )
-    )
-    
     application.add_error_handler(error)
 
     logger.info("Bot is running...")
