@@ -191,21 +191,25 @@ async def handle_message(update: Update, context: CallbackContext):
           
     # Handle files
     elif update.message.document:
-       try:
+        try:
             file = await context.bot.get_file(update.message.document.file_id)
             temp_file = NamedTemporaryFile(delete=False) # Create a temp file
             await file.download(temp_file.name)
 
-            # Read file content
             file_content = ""
             try:
-               with open(temp_file.name, 'r', encoding='utf-8') as f:
-                    file_content = f.read()
-            except UnicodeDecodeError:
-                with open(temp_file.name, 'r', encoding='latin-1') as f:
-                     file_content = f.read()
+                # Attempt to read as text, trying different encodings
+                try:
+                    with open(temp_file.name, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                except UnicodeDecodeError:
+                    with open(temp_file.name, 'r', encoding='latin-1') as f:
+                        file_content = f.read()
+            except Exception as e:
+                logger.warning(f"Could not read file as text: {e}")
+                file_content = "File content could not be read as text."
             finally:
-              os.remove(temp_file.name) # Delete temp file
+                os.remove(temp_file.name)
 
             if user_id not in user_chat_history:
                 user_chat_history[user_id] = []
@@ -257,10 +261,9 @@ async def handle_message(update: Update, context: CallbackContext):
                 if len(user_chat_history[user_id]) > 100:
                      user_chat_history[user_id] = user_chat_history[user_id][-100:]
             else:
-               await update.message.reply_text("Tôi không hiểu file bạn đã gửi.")
+                await update.message.reply_text("Tôi không hiểu nội dung file bạn đã gửi.")
 
-
-       except Exception as e:
+        except Exception as e:
             logger.error(f"Error handling file: {e}", exc_info=True)
             await update.message.reply_text("Có lỗi xảy ra khi xử lý file. Xin vui lòng thử lại sau.")
 
