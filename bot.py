@@ -171,8 +171,6 @@ async def handle_message(update: Update, context: CallbackContext):
         message = update.message.text
         logger.info(f"Message from {user_name}: {message}")
         combined_contents.append(f"User: {message}")
-    
-        # Add user message to chat history
         user_chat_history[user_id].append(f"User: {message}")
     # Handle files
     elif update.message.document:
