@@ -3,3 +3,6 @@ requests
 user-agent
 google-generativeai
 chardet
+Pillow
+python-docx
+pdfplumber
