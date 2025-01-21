@@ -3,10 +3,13 @@ import google.generativeai as genai
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
-import io
 from tempfile import NamedTemporaryFile
-import asyncio
-from chardet import detect
+import io
+import docx
+import pdfplumber
+from PIL import Image
+import base64
+import chardet
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -96,7 +99,7 @@ async def start(update: Update, context: CallbackContext):
     """Handles the /start command."""
     user_name = update.effective_user.first_name
     await update.message.reply_text(
-        f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn hoặc file cho tôi để bắt đầu."
+        f"Xin chào {user_name}! Tôi là bot AI, hãy gửi tin nhắn cho tôi để bắt đầu."
     )
 
 async def clear_history(update: Update, context: CallbackContext):
@@ -108,107 +111,119 @@ async def clear_history(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("Không có lịch sử trò chuyện nào để xóa.")
 
-def create_code_file(code_content, user_id, block_number):
+def create_code_file(code_content, user_id):
     """Creates a temporary file containing the code."""
-    file_name = f"code_{user_id}_{block_number}.txt"
+    file_name = f"code_{user_id}.txt"
     with open(file_name, "w", encoding="utf-8") as f:
         f.write(code_content)
     return file_name
 
-def detect_encoding(file_path):
-    """Detects the encoding of a file."""
-    try:
-        with open(file_path, 'rb') as f:
-            rawdata = f.read()
-            result = detect(rawdata)
-            return result['encoding']
-    except Exception as e:
-        logger.error(f"Error detecting encoding: {e}", exc_info=True)
-        return 'utf-8'  # Default to UTF-8
-
-async def process_file(file, user_id, user_name, context):
-  """Processes the file content with advanced encoding and error handling."""
-  try:
-    temp_file = NamedTemporaryFile(delete=False)
-    await file.download(temp_file.name)
-    file_path = temp_file.name
-
-    encoding = detect_encoding(file_path)
-    logger.info(f"Detected encoding: {encoding} for file from {user_name}")
-    try:
-      with open(file_path, 'r', encoding=encoding, errors='replace') as f:
-        file_content = f.read()
-    except Exception as e:
-        logger.error(f"Error reading file content with encoding {encoding}: {e}", exc_info=True)
-        file_content = "Error reading file. Please check encoding or file format" # fallback
-    finally:
-        os.remove(file_path)
-    return file_content
-  except Exception as e:
-        logger.error(f"Error downloading and processing file from {user_name}: {e}", exc_info=True)
-        await context.bot.send_message(
-              chat_id=user_id,
-              text="Có lỗi xảy ra khi xử lý file. Vui lòng thử lại sau."
-        )
-        return None
 
 async def handle_message(update: Update, context: CallbackContext):
-    """Handles incoming messages from users with enhanced file handling."""
+    """Handles incoming messages from users."""
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
-    combined_contents = []
-
+    
+    # Get or create user's chat history
     if user_id not in user_chat_history:
         user_chat_history[user_id] = []
     
-    combined_contents.extend(UNCONSTRAINED_PROMPTS) # Add unconstrained prompts
-
-    for item in user_chat_history[user_id]: # Add chat history
-       combined_contents.append(item)
-
     # Handle text messages
     if update.message.text:
         message = update.message.text
         logger.info(f"Message from {user_name}: {message}")
-        combined_contents.append(f"User: {message}")
         user_chat_history[user_id].append(f"User: {message}")
+        all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [message]
     # Handle files
     elif update.message.document:
-      try:
-        file = await context.bot.get_file(update.message.document.file_id)
-        file_content = await process_file(file, user_id, user_name, context)
-      
-        if file_content is not None:
-          combined_contents.append(f"User (file content): {file_content}") # Append file content
-          user_chat_history[user_id].append(f"User (file content): {file_content}")
-      except Exception as e:
-        logger.error(f"General error in file handling: {e}", exc_info=True)
-        await update.message.reply_text("Đã có lỗi xảy ra khi xử lý file. Xin vui lòng thử lại sau.")
-        return
-      
+        try:
+            file = await context.bot.get_file(update.message.document.file_id)
+            temp_file = NamedTemporaryFile(delete=False)
+            await file.download(temp_file.name)
+            file_content = ""
+            file_extension = os.path.splitext(update.message.document.file_name)[1].lower()
+           
+            if file_extension == '.txt':
+                try:
+                   with open(temp_file.name, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                except UnicodeDecodeError:
+                    with open(temp_file.name, 'r', encoding='latin-1') as f:
+                        file_content = f.read()
+            elif file_extension == '.docx':
+                doc = docx.Document(temp_file.name)
+                file_content = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            elif file_extension == '.pdf':
+                    with pdfplumber.open(temp_file.name) as pdf:
+                        file_content = "\n".join([page.extract_text() for page in pdf.pages])
+            elif file_extension in ['.jpg', '.jpeg', '.png']:
+                try:
+                    image = Image.open(temp_file.name)
+                    buffered = io.BytesIO()
+                    image.save(buffered, format=image.format)
+                    encoded_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                    file_content = f"data:image/{image.format.lower()};base64,{encoded_image}"
+                except Exception as e:
+                      logger.error(f"Error handling image file: {e}", exc_info=True)
+                      file_content = "Không thể xử lí file ảnh"
+                      await update.message.reply_text("Có lỗi xảy ra khi xử lý file ảnh.")
+            elif file_extension in ['.py', '.js', '.java', '.c', '.cpp', '.html', '.css', '.php', '.rb', '.go', '.swift', '.kt', '.ts', '.sh', '.bash']:
+                 try:
+                    with open(temp_file.name, 'rb') as f:
+                       raw_data = f.read()
+                       result = chardet.detect(raw_data)
+                       encoding = result['encoding']
+                       if encoding:
+                          file_content = raw_data.decode(encoding)
+                       else:
+                          file_content = raw_data.decode('utf-8', errors='replace') # Fallback if no encoding is found
+                 except Exception as e:
+                       logger.error(f"Error reading code file: {e}", exc_info=True)
+                       file_content = "Không thể đọc file code."
+                       await update.message.reply_text("Có lỗi xảy ra khi đọc file code.")
+            else:
+                file_content = "Không hỗ trợ định dạng file này."
+                await update.message.reply_text("Định dạng file này không được hỗ trợ.")
+
+            os.remove(temp_file.name)
+            
+            user_chat_history[user_id].append(f"User (file): {file_content}")
+            all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [file_content]
+        except Exception as e:
+           logger.error(f"Error handling file: {e}", exc_info=True)
+           await update.message.reply_text("Có lỗi xảy ra khi xử lý file. Xin vui lòng thử lại sau.")
+           return
+    else:
+        return # Ignore non-text and non-file messages
+
+
     try:
+          # Use Gemini API with all the prompts and chat history
           response = model.generate_content(
-              contents=combined_contents
+              contents=all_contents
           )
           
           if response.text:
-             if "```" in response.text:
-                  code_blocks = response.text.split("```")[1::2]
-                  for i, code in enumerate(code_blocks):
-                      code = code.strip()
-                      file_name = create_code_file(code, user_id, i+1)
-                      try:
-                          with open(file_name, "rb") as f:
-                               await update.message.reply_document(
-                                document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
-                                   caption=f"Code generated for {user_name}. Code block {i+1}."
-                               )
-                      except Exception as e:
-                         logger.error(f"Error sending code file: {e}", exc_info=True)
-                         await update.message.reply_text("Có lỗi xảy ra khi gửi file code.")
-                      finally:
-                         os.remove(file_name) # Clean up
+              # Check if the response contains code (heuristic - can be improved)
+              if "```" in response.text:
+                  code_blocks = response.text.split("```")[1::2] # Extract code blocks
 
+                  # Create and send code files for each block
+                  for i, code in enumerate(code_blocks):
+                    
+                      code = code.strip()
+                      
+                      file_name = create_code_file(code, user_id)
+
+                      with open(file_name, "rb") as f:
+                          await update.message.reply_document(
+                              document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
+                                  caption=f"Code generated for {user_name}. Code block {i+1}."
+                              )
+                    
+                      os.remove(file_name) # Clean up the temp file
+
+                  # Send remaining text that isn't code
                   remaining_text = ""
                   parts = response.text.split("```")
                   for i, part in enumerate(parts):
@@ -218,13 +233,16 @@ async def handle_message(update: Update, context: CallbackContext):
                   if remaining_text.strip():
                       await update.message.reply_text(f"{user_name}: {remaining_text}")
 
-             else:
-                 await update.message.reply_text(f"{user_name}: {response.text}")
-             # Append bot response to the user's chat history
-             user_chat_history[user_id].append(f"Bot: {response.text}")
+
+              else:
+                  await update.message.reply_text(f"{user_name}: {response.text}")
+
+
+                # Append bot response to the user's chat history
+              user_chat_history[user_id].append(f"Bot: {response.text}")
 
                 # Limit history to 100 messages
-             if len(user_chat_history[user_id]) > 100:
+              if len(user_chat_history[user_id]) > 100:
                   user_chat_history[user_id] = user_chat_history[user_id][-100:]
 
           else:
@@ -234,10 +252,13 @@ async def handle_message(update: Update, context: CallbackContext):
     except Exception as e:
           logger.error(f"Error during Gemini API request: {e}", exc_info=True)
           await update.message.reply_text("Đã có lỗi xảy ra khi kết nối với AI. Xin vui lòng thử lại sau.")
+          
+
 
 async def error(update: Update, context: CallbackContext):
     """Handles errors."""
     logger.warning(f"Update {update} caused error {context.error}", exc_info=True)
+
 
 def main():
     """Initializes and runs the bot."""
