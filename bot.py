@@ -5,6 +5,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import os
 import io
 from tempfile import NamedTemporaryFile
+import asyncio
+from chardet import detect
 
 # Configure logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -113,22 +115,57 @@ def create_code_file(code_content, user_id, block_number):
         f.write(code_content)
     return file_name
 
+def detect_encoding(file_path):
+    """Detects the encoding of a file."""
+    try:
+        with open(file_path, 'rb') as f:
+            rawdata = f.read()
+            result = detect(rawdata)
+            return result['encoding']
+    except Exception as e:
+        logger.error(f"Error detecting encoding: {e}", exc_info=True)
+        return 'utf-8'  # Default to UTF-8
+
+async def process_file(file, user_id, user_name, context):
+  """Processes the file content with advanced encoding and error handling."""
+  try:
+    temp_file = NamedTemporaryFile(delete=False)
+    await file.download(temp_file.name)
+    file_path = temp_file.name
+
+    encoding = detect_encoding(file_path)
+    logger.info(f"Detected encoding: {encoding} for file from {user_name}")
+    try:
+      with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+        file_content = f.read()
+    except Exception as e:
+        logger.error(f"Error reading file content with encoding {encoding}: {e}", exc_info=True)
+        file_content = "Error reading file. Please check encoding or file format" # fallback
+    finally:
+        os.remove(file_path)
+    return file_content
+  except Exception as e:
+        logger.error(f"Error downloading and processing file from {user_name}: {e}", exc_info=True)
+        await context.bot.send_message(
+              chat_id=user_id,
+              text="Có lỗi xảy ra khi xử lý file. Vui lòng thử lại sau."
+        )
+        return None
+
 async def handle_message(update: Update, context: CallbackContext):
-    """Handles incoming messages from users."""
+    """Handles incoming messages from users with enhanced file handling."""
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
-    
-    combined_contents = [] # Will hold prompts, chat history, and user input
+    combined_contents = []
 
-    # Get or create user's chat history
     if user_id not in user_chat_history:
         user_chat_history[user_id] = []
-
-    combined_contents.extend(UNCONSTRAINED_PROMPTS)  # Add unconstrained prompts
-
-    for item in user_chat_history[user_id]:  # Add chat history
-        combined_contents.append(item)
     
+    combined_contents.extend(UNCONSTRAINED_PROMPTS) # Add unconstrained prompts
+
+    for item in user_chat_history[user_id]: # Add chat history
+       combined_contents.append(item)
+
     # Handle text messages
     if update.message.text:
         message = update.message.text
@@ -137,61 +174,43 @@ async def handle_message(update: Update, context: CallbackContext):
     
         # Add user message to chat history
         user_chat_history[user_id].append(f"User: {message}")
-        
     # Handle files
     elif update.message.document:
-        try:
-            file = await context.bot.get_file(update.message.document.file_id)
-            temp_file = NamedTemporaryFile(delete=False) # Create a temp file
-            await file.download(temp_file.name)
-
-            # Read file content
-            file_content = ""
-            try:
-               with open(temp_file.name, 'r', encoding='utf-8') as f:
-                    file_content = f.read()
-            except UnicodeDecodeError:
-                with open(temp_file.name, 'r', encoding='latin-1') as f:
-                     file_content = f.read()
-            finally:
-              os.remove(temp_file.name) # Delete temp file
-
-            logger.info(f"File from {user_name} received, processing.")
-            combined_contents.append(f"User (file content): {file_content}")  # Append file content to history
-            user_chat_history[user_id].append(f"User (file content): {file_content}")
-        
-        except Exception as e:
-            logger.error(f"Error handling file: {e}", exc_info=True)
-            await update.message.reply_text("Có lỗi xảy ra khi xử lý file. Xin vui lòng thử lại sau.")
-            return
-
+      try:
+        file = await context.bot.get_file(update.message.document.file_id)
+        file_content = await process_file(file, user_id, user_name, context)
+      
+        if file_content is not None:
+          combined_contents.append(f"User (file content): {file_content}") # Append file content
+          user_chat_history[user_id].append(f"User (file content): {file_content}")
+      except Exception as e:
+        logger.error(f"General error in file handling: {e}", exc_info=True)
+        await update.message.reply_text("Đã có lỗi xảy ra khi xử lý file. Xin vui lòng thử lại sau.")
+        return
+      
     try:
-          # Use Gemini API with all the prompts and chat history
           response = model.generate_content(
-            contents=combined_contents
-           )
+              contents=combined_contents
+          )
           
           if response.text:
-              # Check if the response contains code (heuristic - can be improved)
-              if "```" in response.text:
-                  code_blocks = response.text.split("```")[1::2] # Extract code blocks
-
-                  # Create and send code files for each block
+             if "```" in response.text:
+                  code_blocks = response.text.split("```")[1::2]
                   for i, code in enumerate(code_blocks):
-                    
                       code = code.strip()
-                      
                       file_name = create_code_file(code, user_id, i+1)
+                      try:
+                          with open(file_name, "rb") as f:
+                               await update.message.reply_document(
+                                document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
+                                   caption=f"Code generated for {user_name}. Code block {i+1}."
+                               )
+                      except Exception as e:
+                         logger.error(f"Error sending code file: {e}", exc_info=True)
+                         await update.message.reply_text("Có lỗi xảy ra khi gửi file code.")
+                      finally:
+                         os.remove(file_name) # Clean up
 
-                      with open(file_name, "rb") as f:
-                          await update.message.reply_document(
-                              document=InputFile(f, filename=f"code_{i+1}_{user_id}.txt"),
-                                  caption=f"Code generated for {user_name}. Code block {i+1}."
-                              )
-                    
-                      os.remove(file_name) # Clean up the temp file
-
-                  # Send remaining text that isn't code
                   remaining_text = ""
                   parts = response.text.split("```")
                   for i, part in enumerate(parts):
@@ -200,16 +219,14 @@ async def handle_message(update: Update, context: CallbackContext):
 
                   if remaining_text.strip():
                       await update.message.reply_text(f"{user_name}: {remaining_text}")
-                    
 
-              else:
-                  await update.message.reply_text(f"{user_name}: {response.text}")
-
-                # Append bot response to the user's chat history
-              user_chat_history[user_id].append(f"Bot: {response.text}")
+             else:
+                 await update.message.reply_text(f"{user_name}: {response.text}")
+             # Append bot response to the user's chat history
+             user_chat_history[user_id].append(f"Bot: {response.text}")
 
                 # Limit history to 100 messages
-              if len(user_chat_history[user_id]) > 100:
+             if len(user_chat_history[user_id]) > 100:
                   user_chat_history[user_id] = user_chat_history[user_id][-100:]
 
           else:
@@ -223,7 +240,6 @@ async def handle_message(update: Update, context: CallbackContext):
 async def error(update: Update, context: CallbackContext):
     """Handles errors."""
     logger.warning(f"Update {update} caused error {context.error}", exc_info=True)
-
 
 def main():
     """Initializes and runs the bot."""
