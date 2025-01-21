@@ -139,23 +139,46 @@ async def handle_message(update: Update, context: CallbackContext):
         try:
             file = await context.bot.get_file(update.message.document.file_id)
             temp_file = NamedTemporaryFile(delete=False)
-            await file.download(temp_file.name)
+            
+            # Corrected download file method here:
+            await context.bot.download_file(file.file_path, temp_file.name)
+           
             file_content = ""
             file_extension = os.path.splitext(update.message.document.file_name)[1].lower()
+            logger.info(f"File received: {update.message.document.file_name}, Extension: {file_extension}")
            
             if file_extension == '.txt':
-                try:
-                   with open(temp_file.name, 'r', encoding='utf-8') as f:
-                        file_content = f.read()
-                except UnicodeDecodeError:
-                    with open(temp_file.name, 'r', encoding='latin-1') as f:
-                        file_content = f.read()
+                 try:
+                     with open(temp_file.name, 'r', encoding='utf-8') as f:
+                         file_content = f.read()
+                 except UnicodeDecodeError as e:
+                     logger.error(f"UnicodeDecodeError reading TXT file: {e}", exc_info=True)
+                     try:
+                       with open(temp_file.name, 'r', encoding='latin-1') as f:
+                            file_content = f.read()
+                     except Exception as e:
+                          logger.error(f"Error reading TXT file with latin-1 encoding: {e}", exc_info=True)
+                          file_content = "Không thể đọc file TXT."
+                          await update.message.reply_text("Có lỗi xảy ra khi đọc file TXT.")
+                          return
             elif file_extension == '.docx':
-                doc = docx.Document(temp_file.name)
-                file_content = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+                try:
+                    doc = docx.Document(temp_file.name)
+                    file_content = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+                except Exception as e:
+                    logger.error(f"Error reading DOCX file: {e}", exc_info=True)
+                    file_content = "Không thể đọc file DOCX."
+                    await update.message.reply_text("Có lỗi xảy ra khi đọc file DOCX.")
+                    return
             elif file_extension == '.pdf':
-                    with pdfplumber.open(temp_file.name) as pdf:
-                        file_content = "\n".join([page.extract_text() for page in pdf.pages])
+                    try:
+                       with pdfplumber.open(temp_file.name) as pdf:
+                            file_content = "\n".join([page.extract_text() for page in pdf.pages])
+                    except Exception as e:
+                         logger.error(f"Error reading PDF file: {e}", exc_info=True)
+                         file_content = "Không thể đọc file PDF."
+                         await update.message.reply_text("Có lỗi xảy ra khi đọc file PDF.")
+                         return
             elif file_extension in ['.jpg', '.jpeg', '.png']:
                 try:
                     image = Image.open(temp_file.name)
@@ -167,30 +190,35 @@ async def handle_message(update: Update, context: CallbackContext):
                       logger.error(f"Error handling image file: {e}", exc_info=True)
                       file_content = "Không thể xử lí file ảnh"
                       await update.message.reply_text("Có lỗi xảy ra khi xử lý file ảnh.")
+                      return
             elif file_extension in ['.py', '.js', '.java', '.c', '.cpp', '.html', '.css', '.php', '.rb', '.go', '.swift', '.kt', '.ts', '.sh', '.bash']:
-                 try:
+                try:
                     with open(temp_file.name, 'rb') as f:
-                       raw_data = f.read()
-                       result = chardet.detect(raw_data)
-                       encoding = result['encoding']
-                       if encoding:
-                          file_content = raw_data.decode(encoding)
-                       else:
-                          file_content = raw_data.decode('utf-8', errors='replace') # Fallback if no encoding is found
-                 except Exception as e:
-                       logger.error(f"Error reading code file: {e}", exc_info=True)
-                       file_content = "Không thể đọc file code."
-                       await update.message.reply_text("Có lỗi xảy ra khi đọc file code.")
+                        raw_data = f.read()
+                        result = chardet.detect(raw_data)
+                        encoding = result['encoding']
+                        if encoding:
+                            file_content = raw_data.decode(encoding)
+                        else:
+                            file_content = raw_data.decode('utf-8', errors='replace') # Fallback if no encoding is found
+                    logger.info(f"Code file encoding detected: {encoding}")
+                except Exception as e:
+                    logger.error(f"Error reading code file: {e}", exc_info=True)
+                    file_content = "Không thể đọc file code."
+                    await update.message.reply_text("Có lỗi xảy ra khi đọc file code.")
+                    return
             else:
                 file_content = "Không hỗ trợ định dạng file này."
                 await update.message.reply_text("Định dạng file này không được hỗ trợ.")
+                return
+
 
             os.remove(temp_file.name)
             
             user_chat_history[user_id].append(f"User (file): {file_content}")
             all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [file_content]
         except Exception as e:
-           logger.error(f"Error handling file: {e}", exc_info=True)
+           logger.error(f"Error handling file (outer try): {e}", exc_info=True)
            await update.message.reply_text("Có lỗi xảy ra khi xử lý file. Xin vui lòng thử lại sau.")
            return
     else:
