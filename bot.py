@@ -139,9 +139,9 @@ async def handle_message(update: Update, context: CallbackContext):
         try:
             file = await context.bot.get_file(update.message.document.file_id)
             temp_file = NamedTemporaryFile(delete=False)
-            
+           
             # Corrected download file method here:
-            await context.bot.download_file(file.file_path, temp_file.name)
+            await file.download(temp_file.name)
            
             file_content = ""
             file_extension = os.path.splitext(update.message.document.file_name)[1].lower()
