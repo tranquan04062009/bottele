@@ -191,56 +191,29 @@ async def handle_message(update: Update, context: CallbackContext):
           
     # Handle files
     elif update.message.document:
-    try:
-        # Tải file từ Telegram
-        document = update.message.document
-        file = await context.bot.get_file(document.file_id)
+       try:
+            file = await context.bot.get_file(update.message.document.file_id)
+            temp_file = NamedTemporaryFile(delete=False) # Create a temp file
+            await file.download(temp_file.name)
 
-        # Lấy thông tin file
-        file_name = document.file_name if document.file_name else "uploaded_file"
-        file_extension = file_name.split(".")[-1] if "." in file_name else ""
+            # Read file content
+            file_content = ""
+            try:
+               with open(temp_file.name, 'r', encoding='utf-8') as f:
+                    file_content = f.read()
+            except UnicodeDecodeError:
+                with open(temp_file.name, 'r', encoding='latin-1') as f:
+                     file_content = f.read()
+            finally:
+              os.remove(temp_file.name) # Delete temp file
 
-        temp_file = NamedTemporaryFile(delete=False, suffix=f".{file_extension}")  # Tạo file tạm thời
-        await file.download(temp_file.name)
+            if user_id not in user_chat_history:
+                user_chat_history[user_id] = []
 
-        # Đọc nội dung file
-        file_content = ""
-        try:
-            with open(temp_file.name, 'r', encoding='utf-8') as f:
-                file_content = f.read()
-        except UnicodeDecodeError:
-            with open(temp_file.name, 'r', encoding='latin-1') as f:
-                file_content = f.read()
-        except Exception as e:
-            await update.message.reply_text(
-                f"Không thể đọc file `{file_name}`. Định dạng có thể không được hỗ trợ."
-            )
-            os.remove(temp_file.name)
-            return
-        finally:
-            os.remove(temp_file.name)  # Xóa file tạm thời sau khi đọc
+            user_chat_history[user_id].append(f"User: {file_content}")
 
-        # Lưu lịch sử chat nếu chưa tồn tại
-        user_id = update.message.from_user.id
-        if user_id not in user_chat_history:
-            user_chat_history[user_id] = []
-
-        user_chat_history[user_id].append(f"User: {file_content}")
-
-        # Chuẩn bị nội dung để gửi đến API AI
-        all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [file_content]
-
-        # Gọi API AI để xử lý nội dung
-        response = model.generate_content(contents=all_contents)
-
-        # Xử lý phản hồi từ API
-        if response.text:
-            await update.message.reply_text(response.text)
-        else:
-            await update.message.reply_text("Không có phản hồi từ AI. Vui lòng thử lại.")
-    except Exception as e:
-        # Xử lý lỗi chung
-        await update.message.reply_text(f"Đã xảy ra lỗi khi xử lý file: {str(e)}")
+             # Combine prompts, history, and file content
+            all_contents = UNCONSTRAINED_PROMPTS + user_chat_history[user_id] + [file_content]
             
             response = model.generate_content(
             contents = all_contents
