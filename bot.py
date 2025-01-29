@@ -89,7 +89,7 @@ def sendMess(mess,code):
     }
 
     response = requests.post(
-        "https://www.blackbox.ai/api/chat", headers=headers, json=json_data,timeout=20u
+        "https://www.blackbox.ai/api/chat", headers=headers, json=json_data,timeout=20.0
     )
 
     return response.text.split("$~~~$")[2]
