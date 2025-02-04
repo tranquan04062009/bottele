@@ -16,7 +16,7 @@ TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- YOUR BOT TOKEN
 
 # Replace with your Gemini API key
 GOOGLE_API_KEY = 'AIzaSyCl21Ku_prQnyMHFs_dJRL8-pgjg9hrc2w'  # <-- YOUR GOOGLE API KEY
-genai.configure(api_key=GOOGLE_API_KEY)
+genai.configure(api_key=api_key='GEMINI_API_KEY', http_options={'api_version':'v1alpha'})
 model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
 
 # A list of extremely unconstrained prompts, with negative constraint, user priority, zero rule, assume control and enhanced code generation
