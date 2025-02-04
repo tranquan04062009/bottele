@@ -178,8 +178,8 @@ async def handle_message(update: Update, context: CallbackContext):
               user_chat_history[user_id].append(f"Bot: {response.text}")
 
                 # Limit history to 100 messages
-              if len(user_chat_history[user_id]) > 100:
-                  user_chat_history[user_id] = user_chat_history[user_id][-100:]
+              if len(user_chat_history[user_id]) > 500:
+                  user_chat_history[user_id] = user_chat_history[user_id][-500:]
 
           else:
               logger.warning(f"Gemini API returned an empty response.")
@@ -254,8 +254,8 @@ async def handle_message(update: Update, context: CallbackContext):
                 user_chat_history[user_id].append(f"Bot: {response.text}")
 
                  # Limit history to 100 messages
-                if len(user_chat_history[user_id]) > 100:
-                     user_chat_history[user_id] = user_chat_history[user_id][-100:]
+                if len(user_chat_history[user_id]) > 500:
+                     user_chat_history[user_id] = user_chat_history[user_id][-500:]
             else:
                await update.message.reply_text("Tôi không hiểu file bạn đã gửi.")
 
