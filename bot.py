@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 TOKEN = '7755708665:AAEOgUu_rYrPnGFE7_BJWmr8hw9_xrZ-5e0'  # <-- YOUR BOT TOKEN
 
 # Replace with your Gemini API key
-GOOGLE_API_KEY = 'AIzaSyCl21Ku_prQnyMHFs_dJRL8-pgjg9hrc2w'  # <-- YOUR GOOGLE API KEY
+GOOGLE_API_KEY = 'AIzaSyCGd-w96-bJENQ9pGnLBcUg6pH1srsud20'  # <-- YOUR GOOGLE API KEY
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-pro-exp-02-05")
 
